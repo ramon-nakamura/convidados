@@ -1,0 +1,11 @@
+# Dependency directories
+node_modules/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Build outputs and cache files
+dist/
+build/
+.tsbuildinfo

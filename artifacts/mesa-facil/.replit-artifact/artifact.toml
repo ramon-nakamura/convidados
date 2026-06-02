@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "MesaFácil"
+version = "1.0.0"
+id = "artifacts/mesa-facil"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23902
+
+[services.development]
+run = "pnpm --filter @workspace/mesa-facil run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mesa-facil", "run", "build" ]
+publicDir = "artifacts/mesa-facil/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23902"
+BASE_PATH = "/"
