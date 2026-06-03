@@ -242,6 +242,9 @@ export declare const ListGuestsResponseItem: zod.ZodObject<{
     name: zod.ZodString;
     phone: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     group: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    vocativo: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    gender: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    ageRange: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     notes: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     checkedIn: zod.ZodBoolean;
     checkedInAt: zod.ZodOptional<zod.ZodNullable<zod.ZodDate>>;
@@ -257,6 +260,9 @@ export declare const ListGuestsResponseItem: zod.ZodObject<{
     notes?: string | null | undefined;
     phone?: string | null | undefined;
     group?: string | null | undefined;
+    vocativo?: string | null | undefined;
+    gender?: string | null | undefined;
+    ageRange?: string | null | undefined;
     checkedInAt?: Date | null | undefined;
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
@@ -269,6 +275,9 @@ export declare const ListGuestsResponseItem: zod.ZodObject<{
     notes?: string | null | undefined;
     phone?: string | null | undefined;
     group?: string | null | undefined;
+    vocativo?: string | null | undefined;
+    gender?: string | null | undefined;
+    ageRange?: string | null | undefined;
     checkedInAt?: Date | null | undefined;
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
@@ -279,6 +288,9 @@ export declare const ListGuestsResponse: zod.ZodArray<zod.ZodObject<{
     name: zod.ZodString;
     phone: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     group: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    vocativo: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    gender: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    ageRange: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     notes: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     checkedIn: zod.ZodBoolean;
     checkedInAt: zod.ZodOptional<zod.ZodNullable<zod.ZodDate>>;
@@ -294,6 +306,9 @@ export declare const ListGuestsResponse: zod.ZodArray<zod.ZodObject<{
     notes?: string | null | undefined;
     phone?: string | null | undefined;
     group?: string | null | undefined;
+    vocativo?: string | null | undefined;
+    gender?: string | null | undefined;
+    ageRange?: string | null | undefined;
     checkedInAt?: Date | null | undefined;
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
@@ -306,6 +321,9 @@ export declare const ListGuestsResponse: zod.ZodArray<zod.ZodObject<{
     notes?: string | null | undefined;
     phone?: string | null | undefined;
     group?: string | null | undefined;
+    vocativo?: string | null | undefined;
+    gender?: string | null | undefined;
+    ageRange?: string | null | undefined;
     checkedInAt?: Date | null | undefined;
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
@@ -324,17 +342,26 @@ export declare const CreateGuestBody: zod.ZodObject<{
     name: zod.ZodString;
     phone: zod.ZodOptional<zod.ZodString>;
     group: zod.ZodOptional<zod.ZodString>;
+    vocativo: zod.ZodOptional<zod.ZodString>;
+    gender: zod.ZodOptional<zod.ZodString>;
+    ageRange: zod.ZodOptional<zod.ZodString>;
     notes: zod.ZodOptional<zod.ZodString>;
 }, "strip", zod.ZodTypeAny, {
     name: string;
     notes?: string | undefined;
     phone?: string | undefined;
     group?: string | undefined;
+    vocativo?: string | undefined;
+    gender?: string | undefined;
+    ageRange?: string | undefined;
 }, {
     name: string;
     notes?: string | undefined;
     phone?: string | undefined;
     group?: string | undefined;
+    vocativo?: string | undefined;
+    gender?: string | undefined;
+    ageRange?: string | undefined;
 }>;
 /**
  * @summary Update guest (assign seat, update info)
@@ -353,6 +380,9 @@ export declare const UpdateGuestBody: zod.ZodObject<{
     name: zod.ZodOptional<zod.ZodString>;
     phone: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     group: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    vocativo: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    gender: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    ageRange: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     notes: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     floorItemId: zod.ZodOptional<zod.ZodNullable<zod.ZodNumber>>;
     seatNumber: zod.ZodOptional<zod.ZodNullable<zod.ZodNumber>>;
@@ -361,6 +391,9 @@ export declare const UpdateGuestBody: zod.ZodObject<{
     notes?: string | null | undefined;
     phone?: string | null | undefined;
     group?: string | null | undefined;
+    vocativo?: string | null | undefined;
+    gender?: string | null | undefined;
+    ageRange?: string | null | undefined;
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
 }, {
@@ -368,6 +401,9 @@ export declare const UpdateGuestBody: zod.ZodObject<{
     notes?: string | null | undefined;
     phone?: string | null | undefined;
     group?: string | null | undefined;
+    vocativo?: string | null | undefined;
+    gender?: string | null | undefined;
+    ageRange?: string | null | undefined;
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
 }>;
@@ -377,6 +413,9 @@ export declare const UpdateGuestResponse: zod.ZodObject<{
     name: zod.ZodString;
     phone: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     group: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    vocativo: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    gender: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    ageRange: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     notes: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     checkedIn: zod.ZodBoolean;
     checkedInAt: zod.ZodOptional<zod.ZodNullable<zod.ZodDate>>;
@@ -392,6 +431,9 @@ export declare const UpdateGuestResponse: zod.ZodObject<{
     notes?: string | null | undefined;
     phone?: string | null | undefined;
     group?: string | null | undefined;
+    vocativo?: string | null | undefined;
+    gender?: string | null | undefined;
+    ageRange?: string | null | undefined;
     checkedInAt?: Date | null | undefined;
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
@@ -404,6 +446,9 @@ export declare const UpdateGuestResponse: zod.ZodObject<{
     notes?: string | null | undefined;
     phone?: string | null | undefined;
     group?: string | null | undefined;
+    vocativo?: string | null | undefined;
+    gender?: string | null | undefined;
+    ageRange?: string | null | undefined;
     checkedInAt?: Date | null | undefined;
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
@@ -440,6 +485,9 @@ export declare const ToggleGuestCheckinResponse: zod.ZodObject<{
     name: zod.ZodString;
     phone: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     group: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    vocativo: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    gender: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    ageRange: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     notes: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     checkedIn: zod.ZodBoolean;
     checkedInAt: zod.ZodOptional<zod.ZodNullable<zod.ZodDate>>;
@@ -455,6 +503,9 @@ export declare const ToggleGuestCheckinResponse: zod.ZodObject<{
     notes?: string | null | undefined;
     phone?: string | null | undefined;
     group?: string | null | undefined;
+    vocativo?: string | null | undefined;
+    gender?: string | null | undefined;
+    ageRange?: string | null | undefined;
     checkedInAt?: Date | null | undefined;
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
@@ -467,6 +518,9 @@ export declare const ToggleGuestCheckinResponse: zod.ZodObject<{
     notes?: string | null | undefined;
     phone?: string | null | undefined;
     group?: string | null | undefined;
+    vocativo?: string | null | undefined;
+    gender?: string | null | undefined;
+    ageRange?: string | null | undefined;
     checkedInAt?: Date | null | undefined;
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;

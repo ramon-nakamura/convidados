@@ -11,5 +11,8 @@ export interface GuestInput {
   name: string;
   phone?: string;
   group?: string;
+  vocativo?: string;
+  gender?: string;
+  ageRange?: string;
   notes?: string;
 }

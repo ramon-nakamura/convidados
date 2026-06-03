@@ -454,6 +454,12 @@ components:
           type: ["string", "null"]
         group:
           type: ["string", "null"]
+        vocativo:
+          type: ["string", "null"]
+        gender:
+          type: ["string", "null"]
+        ageRange:
+          type: ["string", "null"]
         notes:
           type: ["string", "null"]
         checkedIn:
@@ -480,6 +486,12 @@ components:
           type: string
         group:
           type: string
+        vocativo:
+          type: string
+        gender:
+          type: string
+        ageRange:
+          type: string
         notes:
           type: string
 
@@ -492,6 +504,12 @@ components:
         phone:
           type: ["string", "null"]
         group:
+          type: ["string", "null"]
+        vocativo:
+          type: ["string", "null"]
+        gender:
+          type: ["string", "null"]
+        ageRange:
           type: ["string", "null"]
         notes:
           type: ["string", "null"]

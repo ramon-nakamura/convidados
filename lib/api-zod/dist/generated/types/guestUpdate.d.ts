@@ -13,6 +13,12 @@ export interface GuestUpdate {
     /** @nullable */
     group?: string | null;
     /** @nullable */
+    vocativo?: string | null;
+    /** @nullable */
+    gender?: string | null;
+    /** @nullable */
+    ageRange?: string | null;
+    /** @nullable */
     notes?: string | null;
     /** @nullable */
     floorItemId?: number | null;

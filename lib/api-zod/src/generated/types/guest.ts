@@ -15,6 +15,12 @@ export interface Guest {
   /** @nullable */
   group?: string | null;
   /** @nullable */
+  vocativo?: string | null;
+  /** @nullable */
+  gender?: string | null;
+  /** @nullable */
+  ageRange?: string | null;
+  /** @nullable */
   notes?: string | null;
   checkedIn: boolean;
   /** @nullable */

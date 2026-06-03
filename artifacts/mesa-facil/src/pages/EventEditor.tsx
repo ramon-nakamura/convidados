@@ -64,18 +64,53 @@ function snapToWall(
   canvasW: number, canvasH: number,
   threshold = 0  // 0 = always snap to nearest wall; >0 = only snap within threshold
 ): { x: number; y: number } {
-  const cx = Math.max(0, Math.min(x, canvasW - w));
-  const cy = Math.max(0, Math.min(y, canvasH - h));
-  const dL = cx;
-  const dR = canvasW - cx - w;
-  const dT = cy;
-  const dB = canvasH - cy - h;
+  // Measure distance from item CENTER to each wall
+  const itemCX = x + w / 2;
+  const itemCY = y + h / 2;
+  const dL = itemCX;
+  const dR = canvasW - itemCX;
+  const dT = itemCY;
+  const dB = canvasH - itemCY;
   const nearest = Math.min(dL, dR, dT, dB);
-  if (threshold > 0 && nearest >= threshold) return { x: cx, y: cy };
-  if (nearest === dL) return { x: 0,        y: cy };
-  if (nearest === dR) return { x: canvasW - w, y: cy };
-  if (nearest === dT) return { x: cx,        y: 0 };
-  return                       { x: cx,        y: canvasH - h };
+  if (threshold > 0 && nearest >= threshold) return { x, y };
+  // Clamp the along-wall axis so the item stays within canvas edges
+  const clampY = Math.max(0, Math.min(y, canvasH - h));
+  const clampX = Math.max(0, Math.min(x, canvasW - w));
+  // Center item ON the wall line (half inside, half outside)
+  if (nearest === dL) return { x: -w / 2,         y: clampY };
+  if (nearest === dR) return { x: canvasW - w / 2, y: clampY };
+  if (nearest === dT) return { x: clampX,          y: -h / 2 };
+  return                     { x: clampX,          y: canvasH - h / 2 };
+}
+
+function getWallSide(
+  x: number, y: number, w: number, h: number,
+  canvasW: number, canvasH: number
+): "left" | "right" | "top" | "bottom" {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const dL = Math.abs(cx);
+  const dR = Math.abs(canvasW - cx);
+  const dT = Math.abs(cy);
+  const dB = Math.abs(canvasH - cy);
+  const nearest = Math.min(dL, dR, dT, dB);
+  if (nearest === dL) return "left";
+  if (nearest === dR) return "right";
+  if (nearest === dT) return "top";
+  return "bottom";
+}
+
+function snapToWallSide(
+  side: "left" | "right" | "top" | "bottom",
+  x: number, y: number, w: number, h: number,
+  canvasW: number, canvasH: number
+): { x: number; y: number } {
+  const clampY = Math.max(0, Math.min(y, canvasH - h));
+  const clampX = Math.max(0, Math.min(x, canvasW - w));
+  if (side === "left")  return { x: -w / 2,         y: clampY };
+  if (side === "right") return { x: canvasW - w / 2, y: clampY };
+  if (side === "top")   return { x: clampX,          y: -h / 2 };
+  return                       { x: clampX,          y: canvasH - h / 2 };
 }
 
 const ROTATION_PRESETS = [0, 45, 90, 135, 180, 225, 270, 315];
@@ -305,6 +340,18 @@ type DragState = {
   itemOriginY: number;
 };
 
+type ResizeState = {
+  id: number;
+  edge: "left" | "right" | "top" | "bottom";
+  wallSide: "left" | "right" | "top" | "bottom";
+  startPointerX: number;
+  startPointerY: number;
+  origW: number;
+  origH: number;
+  origX: number;
+  origY: number;
+};
+
 export default function EventEditor() {
   const { eventId: eventIdStr } = useParams();
   const eventId = parseInt(eventIdStr || "0", 10);
@@ -330,6 +377,16 @@ export default function EventEditor() {
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [localPos, setLocalPos] = useState<Record<number, { x: number; y: number }>>({});
   const dragRef = useRef<DragState | null>(null);
+
+  // Wall item resize state
+  const [localSize, setLocalSize] = useState<Record<number, { w: number; h: number }>>({});
+  const resizeRef = useRef<ResizeState | null>(null);
+
+  // Stable refs so canvas-resize effect can read current values without stale closures
+  const floorItemsRef = useRef<typeof floorItems>([]);
+  const localPosRef   = useRef<Record<number, { x: number; y: number }>>({});
+  const localSizeRef  = useRef<Record<number, { w: number; h: number }>>({});
+  const prevCanvasRef = useRef({ w: canvasWidth, h: canvasHeight });
 
   // Hover state for showing delete button (layout) and guest tooltip (assignment)
   const [hoveredItemId, setHoveredItemId] = useState<number | null>(null);
@@ -406,6 +463,45 @@ export default function EventEditor() {
       localStorage.setItem(`canvas-size-${eventId}`, JSON.stringify({ w: canvasWidth, h: canvasHeight }));
     } catch { /* ignore */ }
   }, [eventId, canvasWidth, canvasHeight]);
+
+  // ── Keep stable refs in sync ─────────────────────────────────────────────
+  useEffect(() => { floorItemsRef.current = floorItems; }, [floorItems]);
+  useEffect(() => { localPosRef.current   = localPos;   }, [localPos]);
+  useEffect(() => { localSizeRef.current  = localSize;  }, [localSize]);
+
+  // ── Re-snap wall items when canvas is resized ────────────────────────────
+  useEffect(() => {
+    const prevW = prevCanvasRef.current.w;
+    const prevH = prevCanvasRef.current.h;
+    if (prevW === canvasWidth && prevH === canvasHeight) return;
+    prevCanvasRef.current = { w: canvasWidth, h: canvasHeight };
+
+    const wallItems = floorItemsRef.current.filter((fi) => WALL_ITEM_TYPES.has(fi.type));
+    if (wallItems.length === 0) return;
+
+    const updates: Array<{ id: number; x: number; y: number }> = [];
+    const posPatches: Record<number, { x: number; y: number }> = {};
+
+    for (const item of wallItems) {
+      const pos  = localPosRef.current[item.id]  ?? { x: item.x,    y: item.y     };
+      const size = localSizeRef.current[item.id] ?? { w: item.width, h: item.height };
+      // Determine which wall the item was on using OLD dimensions
+      const wallSide = getWallSide(pos.x, pos.y, size.w, size.h, prevW, prevH);
+      // Re-snap to the same wall with the NEW dimensions
+      const newPos = snapToWallSide(wallSide, pos.x, pos.y, size.w, size.h, canvasWidth, canvasHeight);
+      posPatches[item.id] = newPos;
+      updates.push({ id: item.id, x: newPos.x, y: newPos.y });
+    }
+
+    setLocalPos((prev) => ({ ...prev, ...posPatches }));
+
+    for (const u of updates) {
+      updateFloorItem.mutate(
+        { eventId, floorItemId: u.id, data: { x: u.x, y: u.y } },
+        { onSuccess: () => queryClient.invalidateQueries({ queryKey: getListFloorItemsQueryKey(eventId) }) }
+      );
+    }
+  }, [canvasWidth, canvasHeight, eventId, updateFloorItem, queryClient]);
 
   // ── Ctrl+Wheel zoom ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -508,7 +604,7 @@ export default function EventEditor() {
   const handleItemPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>, item: ListFloorItemsResponseItem) => {
       if (mode !== "layout") return;
-      if ((e.target as HTMLElement).closest("button")) return;
+      if ((e.target as HTMLElement).closest("button,[data-resize-handle]")) return;
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
       dragRef.current = {
@@ -526,13 +622,16 @@ export default function EventEditor() {
 
   const handleItemPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>, item: ListFloorItemsResponseItem) => {
+      if (resizeRef.current?.id === item.id) return; // resize is handling it
       if (!dragRef.current || dragRef.current.id !== item.id) return;
       const z = zoomRef.current;
       const dx = (e.clientX - dragRef.current.startPointerX) / z;
       const dy = (e.clientY - dragRef.current.startPointerY) / z;
       const rawX = dragRef.current.itemOriginX + dx;
       const rawY = dragRef.current.itemOriginY + dy;
-      const { w: dW, h: dH } = computeTableSize(item.type, item.capacity);
+      const { w: dW, h: dH } = WALL_ITEM_TYPES.has(item.type)
+        ? (localSize[item.id] ?? { w: item.width, h: item.height })
+        : computeTableSize(item.type, item.capacity);
       if (WALL_ITEM_TYPES.has(item.type)) {
         const snapped = snapToWall(snapToGrid(rawX), snapToGrid(rawY), dW, dH, canvasWidth, canvasHeight, WALL_SNAP_THRESHOLD);
         setLocalPos((prev) => ({ ...prev, [item.id]: snapped }));
@@ -542,16 +641,17 @@ export default function EventEditor() {
         setLocalPos((prev) => ({ ...prev, [item.id]: { x: newX, y: newY } }));
       }
     },
-    [canvasWidth, canvasHeight]
+    [canvasWidth, canvasHeight, localSize]
   );
 
   const handleItemPointerUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>, item: ListFloorItemsResponseItem) => {
+      if (resizeRef.current?.id === item.id) return; // resize is handling it
       if (!dragRef.current || dragRef.current.id !== item.id) return;
       const raw = localPos[item.id] ?? { x: item.x, y: item.y };
       let pos = { x: snapToGrid(raw.x), y: snapToGrid(raw.y) };
       if (WALL_ITEM_TYPES.has(item.type)) {
-        const { w: dW, h: dH } = computeTableSize(item.type, item.capacity);
+        const { w: dW, h: dH } = localSize[item.id] ?? { w: item.width, h: item.height };
         pos = snapToWall(pos.x, pos.y, dW, dH, canvasWidth, canvasHeight);
       }
       setLocalPos((prev) => ({ ...prev, [item.id]: pos }));
@@ -562,7 +662,62 @@ export default function EventEditor() {
       dragRef.current = null;
       setDraggingId(null);
     },
-    [localPos, eventId, updateFloorItem, queryClient, canvasWidth, canvasHeight]
+    [localPos, localSize, eventId, updateFloorItem, queryClient, canvasWidth, canvasHeight]
+  );
+
+  // ── Resize handlers for wall items ──────────────────────────────────────
+  const handleResizePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>, item: ListFloorItemsResponseItem, edge: "left" | "right" | "top" | "bottom") => {
+      e.stopPropagation();
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      const pos  = localPos[item.id]  ?? { x: item.x,    y: item.y     };
+      const size = localSize[item.id] ?? { w: item.width, h: item.height };
+      const wallSide = getWallSide(pos.x, pos.y, size.w, size.h, canvasWidth, canvasHeight);
+      resizeRef.current = {
+        id: item.id, edge, wallSide,
+        startPointerX: e.clientX,
+        startPointerY: e.clientY,
+        origW: size.w, origH: size.h,
+        origX: pos.x,  origY: pos.y,
+      };
+    },
+    [localPos, localSize, canvasWidth, canvasHeight]
+  );
+
+  const handleResizePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>, item: ListFloorItemsResponseItem) => {
+      if (!resizeRef.current || resizeRef.current.id !== item.id) return;
+      const z = zoomRef.current;
+      const { edge, wallSide, startPointerX, startPointerY, origW, origH, origX, origY } = resizeRef.current;
+      const dx = (e.clientX - startPointerX) / z;
+      const dy = (e.clientY - startPointerY) / z;
+      const MIN_SIZE = 30;
+      let newW = origW;
+      let newH = origH;
+      if (edge === "right")  newW = Math.max(MIN_SIZE, snapToGrid(origW + dx));
+      if (edge === "left")   newW = Math.max(MIN_SIZE, snapToGrid(origW - dx));
+      if (edge === "bottom") newH = Math.max(MIN_SIZE, snapToGrid(origH + dy));
+      if (edge === "top")    newH = Math.max(MIN_SIZE, snapToGrid(origH - dy));
+      setLocalSize((prev) => ({ ...prev, [item.id]: { w: newW, h: newH } }));
+      const newPos = snapToWallSide(wallSide, origX, origY, newW, newH, canvasWidth, canvasHeight);
+      setLocalPos((prev) => ({ ...prev, [item.id]: newPos }));
+    },
+    [canvasWidth, canvasHeight]
+  );
+
+  const handleResizePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>, item: ListFloorItemsResponseItem) => {
+      if (!resizeRef.current || resizeRef.current.id !== item.id) return;
+      const size = localSize[item.id] ?? { w: item.width, h: item.height };
+      const pos  = localPos[item.id]  ?? { x: item.x,    y: item.y     };
+      updateFloorItem.mutate(
+        { eventId, floorItemId: item.id, data: { x: pos.x, y: pos.y, width: size.w, height: size.h } },
+        { onSuccess: () => queryClient.invalidateQueries({ queryKey: getListFloorItemsQueryKey(eventId) }) }
+      );
+      resizeRef.current = null;
+    },
+    [localSize, localPos, eventId, updateFloorItem, queryClient]
   );
 
   // ── HTML5 DnD: drop NEW items from toolbar onto canvas ──────────────────
@@ -950,30 +1105,70 @@ export default function EventEditor() {
                 onDrop={handleDropUnassign}
                 data-testid="unassigned-drop-zone"
               >
-                {guests
-                  .filter((g) => g.floorItemId == null)
-                  .map((guest) => (
-                    <div
-                      key={guest.id}
-                      draggable
-                      onDragStart={(e) => handleDragStartGuest(e, guest.id)}
-                      data-testid={`guest-card-${guest.id}`}
-                      className="bg-background border rounded-md px-3 py-2 cursor-grab active:cursor-grabbing hover:border-primary hover:shadow-sm transition-all flex items-center gap-2"
-                    >
-                      <GripHorizontal className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{guest.name}</p>
-                        {guest.group && (
-                          <p className="text-[10px] text-muted-foreground truncate">{guest.group}</p>
-                        )}
+                {(() => {
+                  const unassigned = guests.filter((g) => g.floorItemId == null);
+                  if (unassigned.length === 0) {
+                    return (
+                      <div className="text-center py-8 text-muted-foreground text-sm border border-dashed rounded-lg">
+                        Todos os convidados alocados!
                       </div>
+                    );
+                  }
+
+                  // Group by vocativo; guests without vocativo get their own entry
+                  const grouped: Array<{ vocativo?: string | null; guests: typeof unassigned }> = [];
+                  const seen = new Map<string, number>();
+                  for (const g of unassigned) {
+                    if (g.vocativo) {
+                      const existing = seen.get(g.vocativo);
+                      if (existing !== undefined) {
+                        grouped[existing].guests.push(g);
+                      } else {
+                        seen.set(g.vocativo, grouped.length);
+                        grouped.push({ vocativo: g.vocativo, guests: [g] });
+                      }
+                    } else {
+                      grouped.push({ vocativo: null, guests: [g] });
+                    }
+                  }
+
+                  return grouped.map((group, gi) => (
+                    <div key={gi} className={group.vocativo ? "rounded-lg border border-border/70 bg-muted/30 p-2 space-y-1.5" : ""}>
+                      {group.vocativo && (
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-1 truncate" title={group.vocativo}>
+                          👨‍👩‍👧 {group.vocativo}
+                        </p>
+                      )}
+                      {group.guests.map((guest) => (
+                        <div
+                          key={guest.id}
+                          draggable
+                          onDragStart={(e) => handleDragStartGuest(e, guest.id)}
+                          data-testid={`guest-card-${guest.id}`}
+                          className="bg-background border rounded-md px-3 py-2 cursor-grab active:cursor-grabbing hover:border-primary hover:shadow-sm transition-all flex items-center gap-2"
+                        >
+                          <GripHorizontal className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{guest.name}</p>
+                            <div className="flex flex-wrap gap-x-2 gap-y-0 mt-0.5">
+                              {guest.group && (
+                                <span className="text-[10px] text-muted-foreground truncate">{guest.group}</span>
+                              )}
+                              {guest.ageRange && (
+                                <span className="text-[10px] text-blue-500/80 truncate">{guest.ageRange}</span>
+                              )}
+                            </div>
+                            {guest.notes && (
+                              <p className="text-[10px] text-amber-600/80 truncate mt-0.5" title={guest.notes}>
+                                {guest.notes}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                {guests.filter((g) => g.floorItemId == null).length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground text-sm border border-dashed rounded-lg">
-                    Todos os convidados alocados!
-                  </div>
-                )}
+                  ));
+                })()}
               </div>
             </div>
           )}
@@ -1077,7 +1272,9 @@ export default function EventEditor() {
               };
 
               const pos = localPos[item.id] ?? { x: item.x, y: item.y };
-              const { w: displayW, h: displayH } = computeTableSize(item.type, item.capacity);
+              const { w: displayW, h: displayH } = isWallItem
+                ? (localSize[item.id] ?? { w: item.width, h: item.height })
+                : computeTableSize(item.type, item.capacity);
 
               return (
                 <div
@@ -1115,6 +1312,39 @@ export default function EventEditor() {
                     zIndex: isDraggingThis ? 50 : 10,
                   }}
                 >
+                  {/* Wall item resize handles */}
+                  {isWallItem && mode === "layout" && (() => {
+                    const wallSide = getWallSide(pos.x, pos.y, displayW, displayH, canvasWidth, canvasHeight);
+                    return (["top", "bottom", "left", "right"] as const).map((edge) => {
+                      if (edge === wallSide) return null;
+                      const isHorz = edge === "top" || edge === "bottom";
+                      const isHovered = hoveredItemId === item.id;
+                      const edgeStyle: React.CSSProperties = {
+                        position: "absolute",
+                        zIndex: 60,
+                        cursor: isHorz ? "ns-resize" : "ew-resize",
+                        backgroundColor: isHovered ? "rgba(80,110,200,0.45)" : "rgba(80,110,200,0.15)",
+                        borderRadius: 3,
+                        transition: "background-color 0.15s ease",
+                        ...(edge === "top"    && { top: -4, left: 6, right: 6, height: 8 }),
+                        ...(edge === "bottom" && { bottom: -4, left: 6, right: 6, height: 8 }),
+                        ...(edge === "left"   && { left: -4, top: 6, bottom: 6, width: 8 }),
+                        ...(edge === "right"  && { right: -4, top: 6, bottom: 6, width: 8 }),
+                      };
+                      return (
+                        <div
+                          key={edge}
+                          data-resize-handle="true"
+                          style={edgeStyle}
+                          onPointerDown={(e) => handleResizePointerDown(e, item, edge)}
+                          onPointerMove={(e) => handleResizePointerMove(e, item)}
+                          onPointerUp={(e) => handleResizePointerUp(e, item)}
+                          onPointerCancel={(e) => handleResizePointerUp(e, item)}
+                        />
+                      );
+                    });
+                  })()}
+
                   {/* Chairs */}
                   {getChairPositions(item.type, displayW, displayH, item.capacity).map((ch, i) => {
                     const seatNum = i + 1;
@@ -1274,11 +1504,33 @@ export default function EventEditor() {
                 <p className="text-2xl font-bold text-foreground leading-none">{stats?.totalGuests ?? 0}</p>
                 <p className="text-[10px] text-muted-foreground mt-1">convidados</p>
               </div>
-              <div className="bg-muted/50 rounded-lg p-2.5 text-center">
-                <p className="text-2xl font-bold text-foreground leading-none">{stats?.totalSeats ?? 0}</p>
+              <div
+                className="rounded-lg p-2.5 text-center"
+                style={{
+                  backgroundColor: (stats?.totalGuests ?? 0) > (stats?.totalSeats ?? 0)
+                    ? "#FEF3C7"
+                    : "hsl(var(--muted) / 0.5)",
+                }}
+              >
+                <p
+                  className="text-2xl font-bold leading-none"
+                  style={{ color: (stats?.totalGuests ?? 0) > (stats?.totalSeats ?? 0) ? "#B45309" : undefined }}
+                >
+                  {stats?.totalSeats ?? 0}
+                </p>
                 <p className="text-[10px] text-muted-foreground mt-1">lugares</p>
               </div>
             </div>
+
+            {/* Shortage warning */}
+            {(stats?.totalGuests ?? 0) > (stats?.totalSeats ?? 0) && (
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                <span className="mt-0.5 text-amber-500 shrink-0">⚠</span>
+                <p className="text-[11px] leading-snug text-amber-800 font-medium">
+                  Faltam <strong>{(stats?.totalGuests ?? 0) - (stats?.totalSeats ?? 0)}</strong> lugar{(stats?.totalGuests ?? 0) - (stats?.totalSeats ?? 0) !== 1 ? "es" : ""} no mapa para acomodar todos os convidados.
+                </p>
+              </div>
+            )}
 
             {/* Allocation bar */}
             {(stats?.totalGuests ?? 0) > 0 && (
@@ -1334,14 +1586,52 @@ export default function EventEditor() {
 
 // ── Guest Import Dialog ───────────────────────────────────────────────────
 
-type ParsedRow = { name: string; group?: string; phone?: string };
+type ParsedRow = { name: string; group?: string; phone?: string; gender?: string; ageRange?: string; notes?: string; vocativo?: string };
 
 function normalizeHeader(h: string): string {
   return h.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 }
 
 function detectColumn(headers: string[], candidates: string[]): number {
-  return headers.findIndex((h) => candidates.includes(normalizeHeader(h)));
+  const norms = headers.map(normalizeHeader);
+  // Score each header against every candidate; pick the highest-scoring one.
+  // Exact match: 1000 + candidate.length (longer exact match beats shorter exact match)
+  // Partial match (header contains candidate): candidate.length
+  let bestIdx = -1;
+  let bestScore = -1;
+  norms.forEach((norm, i) => {
+    for (const c of candidates) {
+      let score = -1;
+      if (norm === c) score = 1000 + c.length;
+      else if (norm.includes(c)) score = c.length;
+      if (score > bestScore) { bestScore = score; bestIdx = i; }
+    }
+  });
+  return bestIdx;
+}
+
+// All candidate sets used to score rows and find the best header row
+const COLUMN_CANDIDATES = {
+  name:     ["nome dos convidados", "nome do convidado", "nome", "name", "convidado", "guest"],
+  group:    ["grupo do convite", "grupo", "group", "familia"],
+  phone:    ["fone para confirmacao", "telefone", "phone", "cel", "celular", "fone"],
+  gender:   ["genero", "gender", "sexo"],
+  ageRange: ["faixa etaria", "faixa_etaria", "faixaetaria", "age range", "age_range", "agerange", "faixa", "idade"],
+  notes:    ["observacao do convite", "observacoes do convite", "observacao", "observacoes", "obs", "notes", "nota", "notas"],
+  vocativo: ["vocativo para convite", "vocativo"],
+} as const;
+
+// Find which row index is most likely the header row (checks first 5 rows)
+function findHeaderRowIndex(rows: string[][]): number {
+  const sets = Object.values(COLUMN_CANDIDATES);
+  let bestRow = 0;
+  let bestScore = -1;
+  for (let i = 0; i < Math.min(5, rows.length); i++) {
+    const rowStrs = rows[i].map(String);
+    const score = sets.filter((candidates) => detectColumn(rowStrs, [...candidates]) !== -1).length;
+    if (score > bestScore) { bestScore = score; bestRow = i; }
+  }
+  return bestRow;
 }
 
 async function parseFile(file: File): Promise<ParsedRow[]> {
@@ -1352,19 +1642,49 @@ async function parseFile(file: File): Promise<ParsedRow[]> {
   const rows: string[][] = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as string[][];
   if (rows.length < 2) return [];
 
-  const headers = rows[0].map(String);
-  const nameIdx   = detectColumn(headers, ["nome", "name", "convidado", "guest"]);
-  const groupIdx  = detectColumn(headers, ["grupo", "group", "mesa", "table", "familia", "familia"]);
-  const phoneIdx  = detectColumn(headers, ["telefone", "phone", "cel", "celular", "fone"]);
+  const headerRowIdx = findHeaderRowIndex(rows);
+  const headers = rows[headerRowIdx].map(String);
+
+  const nameIdx     = detectColumn(headers, [...COLUMN_CANDIDATES.name]);
+  const groupIdx    = detectColumn(headers, [...COLUMN_CANDIDATES.group]);
+  const phoneIdx    = detectColumn(headers, [...COLUMN_CANDIDATES.phone]);
+  const genderIdx   = detectColumn(headers, [...COLUMN_CANDIDATES.gender]);
+  const ageRangeIdx = detectColumn(headers, [...COLUMN_CANDIDATES.ageRange]);
+  const notesIdx    = detectColumn(headers, [...COLUMN_CANDIDATES.notes]);
+  const vocativoIdx = detectColumn(headers, [...COLUMN_CANDIDATES.vocativo]);
 
   if (nameIdx === -1) throw new Error("Coluna 'Nome' não encontrada. Use um cabeçalho: nome, name ou convidado.");
 
-  return rows.slice(1)
-    .map((row) => ({
-      name:  String(row[nameIdx] ?? "").trim(),
-      group: groupIdx >= 0 ? String(row[groupIdx] ?? "").trim() || undefined : undefined,
-      phone: phoneIdx >= 0 ? String(row[phoneIdx] ?? "").trim() || undefined : undefined,
-    }))
+  // Track the current vocativo group — when a row has a vocativo, all following
+  // rows without one (but with a name) belong to the same family group.
+  let currentVocativo: string | undefined = undefined;
+  // Also carry the group/phone from the vocativo row down to grouped rows
+  let currentGroup: string | undefined = undefined;
+  let currentPhone: string | undefined = undefined;
+
+  return rows.slice(headerRowIdx + 1)
+    .map((row) => {
+      const name     = String(row[nameIdx] ?? "").trim();
+      const rawVoc   = vocativoIdx >= 0 ? String(row[vocativoIdx] ?? "").trim() : "";
+      const rawGroup = groupIdx    >= 0 ? String(row[groupIdx]    ?? "").trim() : "";
+      const rawPhone = phoneIdx    >= 0 ? String(row[phoneIdx]    ?? "").trim() : "";
+
+      if (rawVoc) {
+        currentVocativo = rawVoc;
+        currentGroup    = rawGroup || undefined;
+        currentPhone    = rawPhone || undefined;
+      }
+
+      return {
+        name,
+        vocativo: currentVocativo,
+        group:    rawGroup || currentGroup || undefined,
+        phone:    rawPhone || currentPhone || undefined,
+        gender:   genderIdx   >= 0 ? String(row[genderIdx]   ?? "").trim() || undefined : undefined,
+        ageRange: ageRangeIdx >= 0 ? String(row[ageRangeIdx] ?? "").trim() || undefined : undefined,
+        notes:    notesIdx    >= 0 ? String(row[notesIdx]     ?? "").trim() || undefined : undefined,
+      };
+    })
     .filter((r) => r.name.length > 0);
 }
 
@@ -1515,10 +1835,13 @@ function GuestImportDialog({ eventId }: { eventId: number }) {
                 <p className="font-semibold text-foreground">Formato esperado:</p>
                 <p>A primeira linha deve ter cabeçalhos. Colunas reconhecidas:</p>
                 <ul className="list-disc list-inside space-y-0.5">
-                  <li><span className="font-mono">nome</span> ou <span className="font-mono">name</span> — obrigatório</li>
-                  <li><span className="font-mono">grupo</span> ou <span className="font-mono">group</span> — opcional</li>
-                  <li><span className="font-mono">telefone</span> ou <span className="font-mono">phone</span> — opcional</li>
+                  <li><span className="font-mono">nome</span> / <span className="font-mono">name</span> — <span className="text-foreground font-medium">obrigatório</span></li>
+                  <li><span className="font-mono">genero</span> / <span className="font-mono">gender</span> / <span className="font-mono">sexo</span></li>
+                  <li><span className="font-mono">faixa etaria</span> / <span className="font-mono">idade</span></li>
+                  <li><span className="font-mono">telefone</span> / <span className="font-mono">phone</span></li>
+                  <li><span className="font-mono">grupo</span> / <span className="font-mono">group</span></li>
                 </ul>
+                <p className="pt-0.5 text-[10px]">O cabeçalho não precisa ser exato — basta conter o termo.</p>
               </div>
             )}
 
@@ -1550,16 +1873,20 @@ function GuestImportDialog({ eventId }: { eventId: number }) {
                     <thead className="bg-muted sticky top-0">
                       <tr>
                         <th className="text-left px-3 py-2 font-medium text-muted-foreground">Nome</th>
-                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Grupo</th>
-                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Telefone</th>
+                        {rows.some((r) => r.gender   !== undefined) && <th className="text-left px-3 py-2 font-medium text-muted-foreground">Gênero</th>}
+                        {rows.some((r) => r.ageRange !== undefined) && <th className="text-left px-3 py-2 font-medium text-muted-foreground">Faixa Etária</th>}
+                        {rows.some((r) => r.phone    !== undefined) && <th className="text-left px-3 py-2 font-medium text-muted-foreground">Telefone</th>}
+                        {rows.some((r) => r.group    !== undefined) && <th className="text-left px-3 py-2 font-medium text-muted-foreground">Grupo</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map((r, i) => (
                         <tr key={i} className="border-t border-border/50 odd:bg-muted/20">
                           <td className="px-3 py-1.5 font-medium">{r.name}</td>
-                          <td className="px-3 py-1.5 text-muted-foreground">{r.group ?? "—"}</td>
-                          <td className="px-3 py-1.5 text-muted-foreground">{r.phone ?? "—"}</td>
+                          {rows.some((r) => r.gender   !== undefined) && <td className="px-3 py-1.5 text-muted-foreground">{r.gender   ?? "—"}</td>}
+                          {rows.some((r) => r.ageRange !== undefined) && <td className="px-3 py-1.5 text-muted-foreground">{r.ageRange ?? "—"}</td>}
+                          {rows.some((r) => r.phone    !== undefined) && <td className="px-3 py-1.5 text-muted-foreground">{r.phone    ?? "—"}</td>}
+                          {rows.some((r) => r.group    !== undefined) && <td className="px-3 py-1.5 text-muted-foreground">{r.group    ?? "—"}</td>}
                         </tr>
                       ))}
                     </tbody>

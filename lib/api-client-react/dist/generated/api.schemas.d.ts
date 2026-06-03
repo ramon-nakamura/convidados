@@ -79,6 +79,12 @@ export interface Guest {
     /** @nullable */
     group?: string | null;
     /** @nullable */
+    vocativo?: string | null;
+    /** @nullable */
+    gender?: string | null;
+    /** @nullable */
+    ageRange?: string | null;
+    /** @nullable */
     notes?: string | null;
     checkedIn: boolean;
     /** @nullable */
@@ -94,6 +100,9 @@ export interface GuestInput {
     name: string;
     phone?: string;
     group?: string;
+    vocativo?: string;
+    gender?: string;
+    ageRange?: string;
     notes?: string;
 }
 export interface GuestUpdate {
@@ -103,6 +112,12 @@ export interface GuestUpdate {
     phone?: string | null;
     /** @nullable */
     group?: string | null;
+    /** @nullable */
+    vocativo?: string | null;
+    /** @nullable */
+    gender?: string | null;
+    /** @nullable */
+    ageRange?: string | null;
     /** @nullable */
     notes?: string | null;
     /** @nullable */
