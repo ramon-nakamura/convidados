@@ -119,7 +119,7 @@ router.get("/events/:eventId/stats", async (req, res): Promise<void> => {
   const unassignedGuests = totalGuests - assignedGuests;
   const checkedInGuests = guests.filter((g) => g.checkedIn).length;
 
-  const tableTypes = ["round-table", "rectangle-table", "couple-table"];
+  const tableTypes = ["round-table", "rectangle-table", "square-table", "couple-table"];
   const tables = floorItems.filter((fi) => tableTypes.includes(fi.type));
   const totalSeats = tables.reduce((sum, t) => sum + t.capacity, 0);
   const occupiedSeats = assignedGuests;

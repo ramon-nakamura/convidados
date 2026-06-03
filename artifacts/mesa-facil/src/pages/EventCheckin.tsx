@@ -14,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import { ArrowLeft, Search, CheckCircle2, Circle, MapPin } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
+const SEATING_TYPES = ["round-table", "rectangle-table", "square-table", "couple-table"];
+
 export default function EventCheckin() {
   const { eventId: eventIdStr } = useParams();
   const eventId = parseInt(eventIdStr || "0", 10);
@@ -43,8 +45,15 @@ export default function EventCheckin() {
     });
   };
 
-  if (isLoadingEvent || isLoadingGuests) return <div className="p-8 text-center">Loading...</div>;
-  if (!event) return <div className="p-8 text-center">Event not found</div>;
+  if (isLoadingEvent || isLoadingGuests) return <div className="p-8 text-center">Carregando...</div>;
+  if (!event) return <div className="p-8 text-center">Evento não encontrado</div>;
+
+  const tableNumberMap = new Map(
+    [...floorItems]
+      .filter((fi) => SEATING_TYPES.includes(fi.type))
+      .sort((a, b) => a.id - b.id)
+      .map((fi, i) => [fi.id, i + 1])
+  );
 
   const filteredGuests = guests.filter(g => 
     g.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -64,14 +73,14 @@ export default function EventCheckin() {
             </Link>
             <div>
               <h1 className="text-2xl font-bold text-primary">{event.name}</h1>
-              <p className="text-sm text-muted-foreground">Check-in Terminal</p>
+              <p className="text-sm text-muted-foreground">Terminal de Check-in</p>
             </div>
           </div>
           <div className="text-right">
             <div className="text-3xl font-bold text-foreground">
               {checkedInCount} <span className="text-muted-foreground text-lg">/ {totalCount}</span>
             </div>
-            <p className="text-sm text-muted-foreground uppercase tracking-wide">Guests Arrived</p>
+            <p className="text-sm text-muted-foreground uppercase tracking-wide">Convidados Presentes</p>
           </div>
         </div>
       </header>
@@ -80,7 +89,7 @@ export default function EventCheckin() {
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
           <Input 
-            placeholder="Search by guest name or group..." 
+            placeholder="Buscar por nome ou grupo..." 
             className="pl-12 py-6 text-lg rounded-full bg-card shadow-sm border-muted"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -90,6 +99,8 @@ export default function EventCheckin() {
         <div className="grid gap-3">
           {filteredGuests.map(guest => {
             const table = floorItems.find(i => i.id === guest.floorItemId);
+            const tableNum = table ? tableNumberMap.get(table.id) : undefined;
+            const tableLabel = tableNum != null ? `Mesa ${tableNum}` : table?.label ?? null;
             
             return (
               <Card 
@@ -101,14 +112,17 @@ export default function EventCheckin() {
                     {guest.name}
                   </h3>
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    {guest.group && <span>Group: {guest.group}</span>}
-                    {table ? (
+                    {guest.group && <span>Grupo: {guest.group}</span>}
+                    {tableLabel ? (
                       <span className="flex items-center gap-1 font-medium text-primary">
                         <MapPin className="w-4 h-4" />
-                        {table.label}
+                        {tableLabel}
+                        {guest.seatNumber && (
+                          <span className="text-muted-foreground font-normal">· Assento {guest.seatNumber}</span>
+                        )}
                       </span>
                     ) : (
-                      <span className="text-destructive font-medium">Unassigned</span>
+                      <span className="text-destructive font-medium">Não alocado</span>
                     )}
                   </div>
                 </div>
@@ -123,12 +137,12 @@ export default function EventCheckin() {
                   {guest.checkedIn ? (
                     <>
                       <CheckCircle2 className="w-5 h-5" />
-                      Checked In
+                      Confirmado
                     </>
                   ) : (
                     <>
                       <Circle className="w-5 h-5" />
-                      Check In
+                      Confirmar
                     </>
                   )}
                 </Button>
@@ -138,7 +152,7 @@ export default function EventCheckin() {
           
           {filteredGuests.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
-              No guests found matching "{search}"
+              Nenhum convidado encontrado para "{search}"
             </div>
           )}
         </div>

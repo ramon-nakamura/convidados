@@ -238,7 +238,7 @@ export const ListFloorItemsParams = zod.object({
 export const ListFloorItemsResponseItem = zod.object({
   "id": zod.number(),
   "eventId": zod.number(),
-  "type": zod.enum(['round-table', 'rectangle-table', 'couple-table', 'buffet-table', 'stage', 'bathroom', 'dj-booth']),
+  "type": zod.enum(['round-table', 'rectangle-table', 'square-table', 'couple-table', 'buffet-table', 'stage', 'bathroom', 'dj-booth', 'entrance', 'emergency-exit']),
   "label": zod.string().nullish(),
   "x": zod.number(),
   "y": zod.number(),
@@ -259,7 +259,7 @@ export const CreateFloorItemParams = zod.object({
 })
 
 export const CreateFloorItemBody = zod.object({
-  "type": zod.enum(['round-table', 'rectangle-table', 'couple-table', 'buffet-table', 'stage', 'bathroom', 'dj-booth']),
+  "type": zod.enum(['round-table', 'rectangle-table', 'square-table', 'couple-table', 'buffet-table', 'stage', 'bathroom', 'dj-booth', 'entrance', 'emergency-exit']),
   "label": zod.string().optional(),
   "x": zod.number(),
   "y": zod.number(),
@@ -279,7 +279,7 @@ export const UpdateFloorItemParams = zod.object({
 })
 
 export const UpdateFloorItemBody = zod.object({
-  "type": zod.enum(['round-table', 'rectangle-table', 'couple-table', 'buffet-table', 'stage', 'bathroom', 'dj-booth']).optional(),
+  "type": zod.enum(['round-table', 'rectangle-table', 'square-table', 'couple-table', 'buffet-table', 'stage', 'bathroom', 'dj-booth', 'entrance', 'emergency-exit']).optional(),
   "label": zod.string().nullish(),
   "x": zod.number().optional(),
   "y": zod.number().optional(),
@@ -292,7 +292,7 @@ export const UpdateFloorItemBody = zod.object({
 export const UpdateFloorItemResponse = zod.object({
   "id": zod.number(),
   "eventId": zod.number(),
-  "type": zod.enum(['round-table', 'rectangle-table', 'couple-table', 'buffet-table', 'stage', 'bathroom', 'dj-booth']),
+  "type": zod.enum(['round-table', 'rectangle-table', 'square-table', 'couple-table', 'buffet-table', 'stage', 'bathroom', 'dj-booth', 'entrance', 'emergency-exit']),
   "label": zod.string().nullish(),
   "x": zod.number(),
   "y": zod.number(),

@@ -510,7 +510,7 @@ components:
           type: integer
         type:
           type: string
-          enum: [round-table, rectangle-table, couple-table, buffet-table, stage, bathroom, dj-booth]
+          enum: [round-table, rectangle-table, square-table, couple-table, buffet-table, stage, bathroom, dj-booth, entrance, emergency-exit]
         label:
           type: ["string", "null"]
         x:
@@ -535,7 +535,7 @@ components:
       properties:
         type:
           type: string
-          enum: [round-table, rectangle-table, couple-table, buffet-table, stage, bathroom, dj-booth]
+          enum: [round-table, rectangle-table, square-table, couple-table, buffet-table, stage, bathroom, dj-booth, entrance, emergency-exit]
         label:
           type: string
         x:
@@ -556,7 +556,7 @@ components:
       properties:
         type:
           type: string
-          enum: [round-table, rectangle-table, couple-table, buffet-table, stage, bathroom, dj-booth]
+          enum: [round-table, rectangle-table, square-table, couple-table, buffet-table, stage, bathroom, dj-booth, entrance, emergency-exit]
         label:
           type: ["string", "null"]
         x:

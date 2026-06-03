@@ -9,10 +9,13 @@ export type FloorItemType = typeof FloorItemType[keyof typeof FloorItemType];
 export declare const FloorItemType: {
     readonly 'round-table': "round-table";
     readonly 'rectangle-table': "rectangle-table";
+    readonly 'square-table': "square-table";
     readonly 'couple-table': "couple-table";
     readonly 'buffet-table': "buffet-table";
     readonly stage: "stage";
     readonly bathroom: "bathroom";
     readonly 'dj-booth': "dj-booth";
+    readonly entrance: "entrance";
+    readonly 'emergency-exit': "emergency-exit";
 };
 //# sourceMappingURL=floorItemType.d.ts.map

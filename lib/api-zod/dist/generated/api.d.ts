@@ -484,7 +484,7 @@ export declare const ListFloorItemsParams: zod.ZodObject<{
 export declare const ListFloorItemsResponseItem: zod.ZodObject<{
     id: zod.ZodNumber;
     eventId: zod.ZodNumber;
-    type: zod.ZodEnum<["round-table", "rectangle-table", "couple-table", "buffet-table", "stage", "bathroom", "dj-booth"]>;
+    type: zod.ZodEnum<["round-table", "rectangle-table", "square-table", "couple-table", "buffet-table", "stage", "bathroom", "dj-booth", "entrance", "emergency-exit"]>;
     label: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     x: zod.ZodNumber;
     y: zod.ZodNumber;
@@ -494,7 +494,7 @@ export declare const ListFloorItemsResponseItem: zod.ZodObject<{
     capacity: zod.ZodNumber;
     createdAt: zod.ZodDate;
 }, "strip", zod.ZodTypeAny, {
-    type: "round-table" | "rectangle-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth";
+    type: "round-table" | "rectangle-table" | "square-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth" | "entrance" | "emergency-exit";
     id: number;
     createdAt: Date;
     eventId: number;
@@ -506,7 +506,7 @@ export declare const ListFloorItemsResponseItem: zod.ZodObject<{
     capacity: number;
     label?: string | null | undefined;
 }, {
-    type: "round-table" | "rectangle-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth";
+    type: "round-table" | "rectangle-table" | "square-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth" | "entrance" | "emergency-exit";
     id: number;
     createdAt: Date;
     eventId: number;
@@ -521,7 +521,7 @@ export declare const ListFloorItemsResponseItem: zod.ZodObject<{
 export declare const ListFloorItemsResponse: zod.ZodArray<zod.ZodObject<{
     id: zod.ZodNumber;
     eventId: zod.ZodNumber;
-    type: zod.ZodEnum<["round-table", "rectangle-table", "couple-table", "buffet-table", "stage", "bathroom", "dj-booth"]>;
+    type: zod.ZodEnum<["round-table", "rectangle-table", "square-table", "couple-table", "buffet-table", "stage", "bathroom", "dj-booth", "entrance", "emergency-exit"]>;
     label: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     x: zod.ZodNumber;
     y: zod.ZodNumber;
@@ -531,7 +531,7 @@ export declare const ListFloorItemsResponse: zod.ZodArray<zod.ZodObject<{
     capacity: zod.ZodNumber;
     createdAt: zod.ZodDate;
 }, "strip", zod.ZodTypeAny, {
-    type: "round-table" | "rectangle-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth";
+    type: "round-table" | "rectangle-table" | "square-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth" | "entrance" | "emergency-exit";
     id: number;
     createdAt: Date;
     eventId: number;
@@ -543,7 +543,7 @@ export declare const ListFloorItemsResponse: zod.ZodArray<zod.ZodObject<{
     capacity: number;
     label?: string | null | undefined;
 }, {
-    type: "round-table" | "rectangle-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth";
+    type: "round-table" | "rectangle-table" | "square-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth" | "entrance" | "emergency-exit";
     id: number;
     createdAt: Date;
     eventId: number;
@@ -566,7 +566,7 @@ export declare const CreateFloorItemParams: zod.ZodObject<{
     eventId: number;
 }>;
 export declare const CreateFloorItemBody: zod.ZodObject<{
-    type: zod.ZodEnum<["round-table", "rectangle-table", "couple-table", "buffet-table", "stage", "bathroom", "dj-booth"]>;
+    type: zod.ZodEnum<["round-table", "rectangle-table", "square-table", "couple-table", "buffet-table", "stage", "bathroom", "dj-booth", "entrance", "emergency-exit"]>;
     label: zod.ZodOptional<zod.ZodString>;
     x: zod.ZodNumber;
     y: zod.ZodNumber;
@@ -575,7 +575,7 @@ export declare const CreateFloorItemBody: zod.ZodObject<{
     rotation: zod.ZodOptional<zod.ZodNumber>;
     capacity: zod.ZodNumber;
 }, "strip", zod.ZodTypeAny, {
-    type: "round-table" | "rectangle-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth";
+    type: "round-table" | "rectangle-table" | "square-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth" | "entrance" | "emergency-exit";
     x: number;
     y: number;
     width: number;
@@ -584,7 +584,7 @@ export declare const CreateFloorItemBody: zod.ZodObject<{
     label?: string | undefined;
     rotation?: number | undefined;
 }, {
-    type: "round-table" | "rectangle-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth";
+    type: "round-table" | "rectangle-table" | "square-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth" | "entrance" | "emergency-exit";
     x: number;
     y: number;
     width: number;
@@ -607,7 +607,7 @@ export declare const UpdateFloorItemParams: zod.ZodObject<{
     floorItemId: number;
 }>;
 export declare const UpdateFloorItemBody: zod.ZodObject<{
-    type: zod.ZodOptional<zod.ZodEnum<["round-table", "rectangle-table", "couple-table", "buffet-table", "stage", "bathroom", "dj-booth"]>>;
+    type: zod.ZodOptional<zod.ZodEnum<["round-table", "rectangle-table", "square-table", "couple-table", "buffet-table", "stage", "bathroom", "dj-booth", "entrance", "emergency-exit"]>>;
     label: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     x: zod.ZodOptional<zod.ZodNumber>;
     y: zod.ZodOptional<zod.ZodNumber>;
@@ -616,7 +616,7 @@ export declare const UpdateFloorItemBody: zod.ZodObject<{
     rotation: zod.ZodOptional<zod.ZodNumber>;
     capacity: zod.ZodOptional<zod.ZodNumber>;
 }, "strip", zod.ZodTypeAny, {
-    type?: "round-table" | "rectangle-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth" | undefined;
+    type?: "round-table" | "rectangle-table" | "square-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth" | "entrance" | "emergency-exit" | undefined;
     label?: string | null | undefined;
     x?: number | undefined;
     y?: number | undefined;
@@ -625,7 +625,7 @@ export declare const UpdateFloorItemBody: zod.ZodObject<{
     rotation?: number | undefined;
     capacity?: number | undefined;
 }, {
-    type?: "round-table" | "rectangle-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth" | undefined;
+    type?: "round-table" | "rectangle-table" | "square-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth" | "entrance" | "emergency-exit" | undefined;
     label?: string | null | undefined;
     x?: number | undefined;
     y?: number | undefined;
@@ -637,7 +637,7 @@ export declare const UpdateFloorItemBody: zod.ZodObject<{
 export declare const UpdateFloorItemResponse: zod.ZodObject<{
     id: zod.ZodNumber;
     eventId: zod.ZodNumber;
-    type: zod.ZodEnum<["round-table", "rectangle-table", "couple-table", "buffet-table", "stage", "bathroom", "dj-booth"]>;
+    type: zod.ZodEnum<["round-table", "rectangle-table", "square-table", "couple-table", "buffet-table", "stage", "bathroom", "dj-booth", "entrance", "emergency-exit"]>;
     label: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     x: zod.ZodNumber;
     y: zod.ZodNumber;
@@ -647,7 +647,7 @@ export declare const UpdateFloorItemResponse: zod.ZodObject<{
     capacity: zod.ZodNumber;
     createdAt: zod.ZodDate;
 }, "strip", zod.ZodTypeAny, {
-    type: "round-table" | "rectangle-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth";
+    type: "round-table" | "rectangle-table" | "square-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth" | "entrance" | "emergency-exit";
     id: number;
     createdAt: Date;
     eventId: number;
@@ -659,7 +659,7 @@ export declare const UpdateFloorItemResponse: zod.ZodObject<{
     capacity: number;
     label?: string | null | undefined;
 }, {
-    type: "round-table" | "rectangle-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth";
+    type: "round-table" | "rectangle-table" | "square-table" | "couple-table" | "buffet-table" | "stage" | "bathroom" | "dj-booth" | "entrance" | "emergency-exit";
     id: number;
     createdAt: Date;
     eventId: number;

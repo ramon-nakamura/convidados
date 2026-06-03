@@ -23,7 +23,7 @@ import {
 } from "@workspace/api-client-react/src/generated/api.schemas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, GripHorizontal, Users, Map as MapIcon, X, ZoomIn, ZoomOut, Maximize2, RotateCw, RotateCcw } from "lucide-react";
+import { ArrowLeft, GripHorizontal, Users, Map as MapIcon, X, ZoomIn, ZoomOut, Maximize2, RotateCw, RotateCcw, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -43,17 +43,152 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 
 const ITEM_TYPES = [
-  { type: "round-table", label: "Mesa Redonda (8)", capacity: 8, w: 110, h: 110 },
-  { type: "round-table", label: "Mesa Redonda (10)", capacity: 10, w: 130, h: 130 },
-  { type: "rectangle-table", label: "Mesa Retangular (8)", capacity: 8, w: 170, h: 80 },
-  { type: "couple-table", label: "Mesa dos Noivos", capacity: 2, w: 200, h: 70 },
-  { type: "buffet-table", label: "Buffet", capacity: 0, w: 200, h: 60 },
-  { type: "stage", label: "Palco", capacity: 0, w: 280, h: 90 },
-  { type: "dj-booth", label: "DJ Booth", capacity: 0, w: 100, h: 80 },
-  { type: "bathroom", label: "Banheiro", capacity: 0, w: 80, h: 80 },
+  { type: "round-table",      label: "Mesa Redonda",        capacity: 10, w: 130, h: 130 },
+  { type: "rectangle-table",  label: "Mesa Retangular",     capacity: 8,  w: 170, h: 80  },
+  { type: "square-table",     label: "Mesa Quadrada",       capacity: 8,  w: 110, h: 110 },
+  { type: "couple-table",     label: "Mesa dos Noivos",     capacity: 2,  w: 200, h: 70  },
+  { type: "buffet-table",     label: "Buffet",              capacity: 0,  w: 200, h: 60  },
+  { type: "stage",            label: "Palco",               capacity: 0,  w: 280, h: 90  },
+  { type: "dj-booth",         label: "DJ Booth",            capacity: 0,  w: 100, h: 80  },
+  { type: "bathroom",         label: "Banheiro",            capacity: 0,  w: 70,  h: 40  },
+  { type: "entrance",         label: "Entrada do Salão",    capacity: 0,  w: 80,  h: 40  },
+  { type: "emergency-exit",   label: "Saída de Emergência", capacity: 0,  w: 80,  h: 40  },
 ];
 
+// Items that must be snapped to the canvas border (wall-mounted items)
+const WALL_ITEM_TYPES = new Set(["bathroom", "entrance", "emergency-exit"]);
+const WALL_SNAP_THRESHOLD = 80; // px — magnetic pull zone near each wall
+
+function snapToWall(
+  x: number, y: number, w: number, h: number,
+  canvasW: number, canvasH: number,
+  threshold = 0  // 0 = always snap to nearest wall; >0 = only snap within threshold
+): { x: number; y: number } {
+  const cx = Math.max(0, Math.min(x, canvasW - w));
+  const cy = Math.max(0, Math.min(y, canvasH - h));
+  const dL = cx;
+  const dR = canvasW - cx - w;
+  const dT = cy;
+  const dB = canvasH - cy - h;
+  const nearest = Math.min(dL, dR, dT, dB);
+  if (threshold > 0 && nearest >= threshold) return { x: cx, y: cy };
+  if (nearest === dL) return { x: 0,        y: cy };
+  if (nearest === dR) return { x: canvasW - w, y: cy };
+  if (nearest === dT) return { x: cx,        y: 0 };
+  return                       { x: cx,        y: canvasH - h };
+}
+
 const ROTATION_PRESETS = [0, 45, 90, 135, 180, 225, 270, 315];
+
+// ── Floor item visual helpers ─────────────────────────────────────────────
+
+const CHAIR_W = 46;
+const CHAIR_H = 15;
+const CHAIR_GAP = 5;
+const CHAIR_SLOT = CHAIR_W + 6; // minimum arc/linear space per chair (no overlap + 6px gap)
+
+function computeTableSize(type: string, capacity: number): { w: number; h: number } {
+  if (type === "buffet-table")    return { w: 200, h: 60 };
+  if (type === "stage")           return { w: 280, h: 90 };
+  if (type === "dj-booth")        return { w: 100, h: 80 };
+  if (type === "bathroom")        return { w: 70,  h: 40 };
+  if (type === "entrance")        return { w: 80,  h: 40 };
+  if (type === "emergency-exit")  return { w: 80,  h: 40 };
+  if (type === "couple-table")    return { w: 160, h: 65 };
+  if (capacity === 0)          return { w: 120, h: 70 };
+
+  if (type === "round-table") {
+    const r = Math.max(40, (capacity * CHAIR_SLOT) / (2 * Math.PI));
+    const tableR = r - CHAIR_GAP - CHAIR_H / 2;
+    const size = Math.max(70, Math.ceil(tableR * 2 / 5) * 5);
+    return { w: size, h: size };
+  }
+
+  if (type === "square-table") {
+    const perSide = Math.ceil(capacity / 4);
+    const size = Math.max(80, (perSide + 1) * CHAIR_SLOT);
+    return { w: size, h: size };
+  }
+
+  // rectangle-table: ~2:1 ratio
+  const topCount = Math.max(1, Math.round(capacity / 3));
+  const sideCount = Math.max(0, Math.round((capacity - topCount * 2) / 2));
+  const w = Math.max(120, (topCount + 1) * CHAIR_SLOT);
+  const h = sideCount > 0
+    ? Math.max(70, (sideCount + 1) * CHAIR_SLOT)
+    : Math.max(70, CHAIR_H * 4);
+  return { w, h };
+}
+
+function getChairPositions(
+  type: string,
+  w: number,
+  h: number,
+  capacity: number,
+): { left: number; top: number; width: number; height: number; transform?: string }[] {
+  if (capacity === 0) return [];
+
+  const cW = CHAIR_W;
+  const cH = CHAIR_H;
+  const gap = CHAIR_GAP;
+
+  if (type === "round-table") {
+    const r = w / 2 + gap + cH / 2;
+    return Array.from({ length: capacity }, (_, i) => {
+      const angle = (i / capacity) * Math.PI * 2 - Math.PI / 2;
+      const cx = w / 2 + Math.cos(angle) * r;
+      const cy = h / 2 + Math.sin(angle) * r;
+      const deg = (angle * 180) / Math.PI + 90;
+      return { left: cx - cW / 2, top: cy - cH / 2, width: cW, height: cH, transform: `rotate(${deg}deg)` };
+    });
+  }
+
+  if (type === "couple-table") {
+    return [
+      { left: w / 2 - cW / 2, top: -(gap + cH), width: cW, height: cH },
+      { left: w / 2 - cW / 2, top: h + gap, width: cW, height: cH },
+    ];
+  }
+
+  // Rectangular / square — distribute chairs proportionally around all 4 sides
+  const perimeter = 2 * (w + h);
+  const topCount = Math.max(1, Math.round(capacity * w / perimeter));
+  const sideCount = Math.max(0, Math.round((capacity - topCount * 2) / 2));
+
+  const chairs: { left: number; top: number; width: number; height: number }[] = [];
+  const topSpacing = w / (topCount + 1);
+  for (let i = 1; i <= topCount; i++) {
+    chairs.push({ left: i * topSpacing - cW / 2, top: -(gap + cH), width: cW, height: cH });
+    chairs.push({ left: i * topSpacing - cW / 2, top: h + gap, width: cW, height: cH });
+  }
+  if (sideCount > 0) {
+    const sideSpacing = h / (sideCount + 1);
+    for (let i = 1; i <= sideCount; i++) {
+      chairs.push({ left: -(gap + cH), top: i * sideSpacing - cW / 2, width: cH, height: cW });
+      chairs.push({ left: w + gap, top: i * sideSpacing - cW / 2, width: cH, height: cW });
+    }
+  }
+  return chairs;
+}
+
+function getTableColor(type: string, isFull: boolean, isNonSeating: boolean) {
+  // Project palette: tan #C9A990, light beige #D9C4B5, cream #FBF0E4,
+  //                 sage light #B5C2B0, sage medium #9BA89A, olive #727A68
+  if (isFull) return { bg: "#C9A990", text: "#5A3E2E" };
+  if (isNonSeating) return { bg: "#D9C4B5", text: "#6B5445" };
+  switch (type) {
+    case "round-table":
+      return { bg: "#B5C2B0", text: "#3A4A38" };
+    case "rectangle-table":
+      return { bg: "#9BA89A", text: "#2E3C2D" };
+    case "square-table":
+      return { bg: "#B5C2B0", text: "#3A4A38" };
+    case "couple-table":
+      return { bg: "#FBF0E4", text: "#7A5A42" };
+    default:
+      return { bg: "#D9C4B5", text: "#6B5445" };
+  }
+}
 
 // ── Priority mapping for guest groups ───────────────────────────────────────
 const GROUP_PRIORITY: Record<string, number> = {
@@ -176,16 +311,29 @@ export default function EventEditor() {
   const queryClient = useQueryClient();
 
   const [mode, setMode] = useState<"layout" | "assignment">("layout");
-  const [canvasWidth, setCanvasWidth] = useState(800);
-  const [canvasHeight, setCanvasHeight] = useState(600);
+  const [canvasWidth, setCanvasWidth] = useState(() => {
+    try {
+      const stored = localStorage.getItem(`canvas-size-${eventId}`);
+      if (stored) { const p = JSON.parse(stored); if (p.w) return p.w; }
+    } catch { /* ignore */ }
+    return 800;
+  });
+  const [canvasHeight, setCanvasHeight] = useState(() => {
+    try {
+      const stored = localStorage.getItem(`canvas-size-${eventId}`);
+      if (stored) { const p = JSON.parse(stored); if (p.h) return p.h; }
+    } catch { /* ignore */ }
+    return 600;
+  });
 
   // Smooth pointer-drag state (for moving existing items)
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [localPos, setLocalPos] = useState<Record<number, { x: number; y: number }>>({});
   const dragRef = useRef<DragState | null>(null);
 
-  // Hover state for showing delete button
+  // Hover state for showing delete button (layout) and guest tooltip (assignment)
   const [hoveredItemId, setHoveredItemId] = useState<number | null>(null);
+  const [hoveredTableId, setHoveredTableId] = useState<number | null>(null);
 
   // Rotation (optimistic local override)
   const [localRotation, setLocalRotation] = useState<Record<number, number>>({});
@@ -251,6 +399,13 @@ export default function EventEditor() {
   const updateFloorItem = useUpdateFloorItem();
   const deleteFloorItem = useDeleteFloorItem();
   const updateGuest = useUpdateGuest();
+
+  // ── Persist canvas size to localStorage ─────────────────────────────────
+  useEffect(() => {
+    try {
+      localStorage.setItem(`canvas-size-${eventId}`, JSON.stringify({ w: canvasWidth, h: canvasHeight }));
+    } catch { /* ignore */ }
+  }, [eventId, canvasWidth, canvasHeight]);
 
   // ── Ctrl+Wheel zoom ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -377,9 +532,15 @@ export default function EventEditor() {
       const dy = (e.clientY - dragRef.current.startPointerY) / z;
       const rawX = dragRef.current.itemOriginX + dx;
       const rawY = dragRef.current.itemOriginY + dy;
-      const newX = Math.max(0, Math.min(snapToGrid(rawX), canvasWidth - item.width));
-      const newY = Math.max(0, Math.min(snapToGrid(rawY), canvasHeight - item.height));
-      setLocalPos((prev) => ({ ...prev, [item.id]: { x: newX, y: newY } }));
+      const { w: dW, h: dH } = computeTableSize(item.type, item.capacity);
+      if (WALL_ITEM_TYPES.has(item.type)) {
+        const snapped = snapToWall(snapToGrid(rawX), snapToGrid(rawY), dW, dH, canvasWidth, canvasHeight, WALL_SNAP_THRESHOLD);
+        setLocalPos((prev) => ({ ...prev, [item.id]: snapped }));
+      } else {
+        const newX = Math.max(0, Math.min(snapToGrid(rawX), canvasWidth - dW));
+        const newY = Math.max(0, Math.min(snapToGrid(rawY), canvasHeight - dH));
+        setLocalPos((prev) => ({ ...prev, [item.id]: { x: newX, y: newY } }));
+      }
     },
     [canvasWidth, canvasHeight]
   );
@@ -388,7 +549,11 @@ export default function EventEditor() {
     (e: React.PointerEvent<HTMLDivElement>, item: ListFloorItemsResponseItem) => {
       if (!dragRef.current || dragRef.current.id !== item.id) return;
       const raw = localPos[item.id] ?? { x: item.x, y: item.y };
-      const pos = { x: snapToGrid(raw.x), y: snapToGrid(raw.y) };
+      let pos = { x: snapToGrid(raw.x), y: snapToGrid(raw.y) };
+      if (WALL_ITEM_TYPES.has(item.type)) {
+        const { w: dW, h: dH } = computeTableSize(item.type, item.capacity);
+        pos = snapToWall(pos.x, pos.y, dW, dH, canvasWidth, canvasHeight);
+      }
       setLocalPos((prev) => ({ ...prev, [item.id]: pos }));
       updateFloorItem.mutate(
         { eventId, floorItemId: item.id, data: { x: pos.x, y: pos.y } },
@@ -397,7 +562,7 @@ export default function EventEditor() {
       dragRef.current = null;
       setDraggingId(null);
     },
-    [localPos, eventId, updateFloorItem, queryClient]
+    [localPos, eventId, updateFloorItem, queryClient, canvasWidth, canvasHeight]
   );
 
   // ── HTML5 DnD: drop NEW items from toolbar onto canvas ──────────────────
@@ -425,17 +590,21 @@ export default function EventEditor() {
     if (!data.type) return;
     const rect = containerRef.current.getBoundingClientRect();
     const z = zoomRef.current;
-    const rawX = (e.clientX - rect.left) / z - data.w / 2;
-    const rawY = (e.clientY - rect.top) / z - data.h / 2;
-    const x = Math.max(0, Math.min(snapToGrid(rawX), canvasWidth - data.w));
-    const y = Math.max(0, Math.min(snapToGrid(rawY), canvasHeight - data.h));
+    const { w: cW, h: cH } = computeTableSize(data.type, data.capacity);
+    const rawX = (e.clientX - rect.left) / z - cW / 2;
+    const rawY = (e.clientY - rect.top) / z - cH / 2;
+    let x = Math.max(0, Math.min(snapToGrid(rawX), canvasWidth - cW));
+    let y = Math.max(0, Math.min(snapToGrid(rawY), canvasHeight - cH));
+    if (WALL_ITEM_TYPES.has(data.type)) {
+      ({ x, y } = snapToWall(x, y, cW, cH, canvasWidth, canvasHeight));
+    }
     const newItem: FloorItemInput = {
       type: data.type as FloorItemInputType,
       label: data.label,
       x,
       y,
-      width: data.w,
-      height: data.h,
+      width: cW,
+      height: cH,
       rotation: 0,
       capacity: data.capacity,
     };
@@ -585,13 +754,15 @@ export default function EventEditor() {
                 <p className="text-xs text-muted-foreground mb-3">
                   Arraste um item para o mapa
                 </p>
+                {/* ── Seating & decor items ─────────────────────────────── */}
                 <div className="grid grid-cols-2 gap-2">
-                  {ITEM_TYPES.map((item, idx) => {
+                  {ITEM_TYPES.filter((it) => !WALL_ITEM_TYPES.has(it.type)).map((item, _i) => {
+                    const idx = ITEM_TYPES.indexOf(item);
                     const capacity = seatOverrides[idx] ?? item.capacity;
                     const isSeating = item.capacity > 0;
                     return (
                       <div
-                        key={idx}
+                        key={item.type}
                         draggable
                         onDragStart={(e) => handleDragStartNewItem(e, item, idx)}
                         data-testid={`toolbar-item-${item.type}-${idx}`}
@@ -600,44 +771,11 @@ export default function EventEditor() {
                         <span className="text-[11px] font-medium leading-tight text-center">
                           {item.label.replace(/ \(\d+\)$/, "")}
                         </span>
-
                         {isSeating ? (
-                          <div
-                            className="flex items-center gap-1 cursor-default"
-                            draggable={false}
-                            onDragStart={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              type="button"
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSeatOverrides((prev) => ({
-                                  ...prev,
-                                  [idx]: Math.max(1, (prev[idx] ?? item.capacity) - 1),
-                                }));
-                              }}
-                              className="w-5 h-5 flex items-center justify-center rounded bg-muted hover:bg-primary hover:text-primary-foreground text-muted-foreground text-xs font-bold transition-colors"
-                            >
-                              −
-                            </button>
-                            <span className="text-[11px] font-semibold text-foreground min-w-[22px] text-center tabular-nums">
-                              {capacity}
-                            </span>
-                            <button
-                              type="button"
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSeatOverrides((prev) => ({
-                                  ...prev,
-                                  [idx]: Math.min(30, (prev[idx] ?? item.capacity) + 1),
-                                }));
-                              }}
-                              className="w-5 h-5 flex items-center justify-center rounded bg-muted hover:bg-primary hover:text-primary-foreground text-muted-foreground text-xs font-bold transition-colors"
-                            >
-                              +
-                            </button>
+                          <div className="flex items-center gap-1 cursor-default" draggable={false} onDragStart={(e) => e.stopPropagation()}>
+                            <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setSeatOverrides((prev) => ({ ...prev, [idx]: Math.max(1, (prev[idx] ?? item.capacity) - 1) })); }} className="w-5 h-5 flex items-center justify-center rounded bg-muted hover:bg-primary hover:text-primary-foreground text-muted-foreground text-xs font-bold transition-colors">−</button>
+                            <span className="text-[11px] font-semibold text-foreground min-w-[22px] text-center tabular-nums">{capacity}</span>
+                            <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setSeatOverrides((prev) => ({ ...prev, [idx]: Math.min(30, (prev[idx] ?? item.capacity) + 1) })); }} className="w-5 h-5 flex items-center justify-center rounded bg-muted hover:bg-primary hover:text-primary-foreground text-muted-foreground text-xs font-bold transition-colors">+</button>
                           </div>
                         ) : (
                           <span className="text-[10px] text-muted-foreground">decoração</span>
@@ -645,6 +783,36 @@ export default function EventEditor() {
                       </div>
                     );
                   })}
+                </div>
+
+                {/* ── Wall items ────────────────────────────────────────── */}
+                <div className="pt-3 border-t border-border/60">
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                    Fixos na parede
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {ITEM_TYPES.filter((it) => WALL_ITEM_TYPES.has(it.type)).map((item) => {
+                      const idx = ITEM_TYPES.indexOf(item);
+                      const wallColors: Record<string, string> = {
+                        bathroom:        "#E8EEF8",
+                        entrance:        "#D4F0D0",
+                        "emergency-exit":"#FFF0D4",
+                      };
+                      return (
+                        <div
+                          key={item.type}
+                          draggable
+                          onDragStart={(e) => handleDragStartNewItem(e, item, idx)}
+                          data-testid={`toolbar-item-${item.type}-${idx}`}
+                          className="border rounded-lg px-2 pt-2.5 pb-2 text-center cursor-grab active:cursor-grabbing hover:border-primary hover:shadow-sm transition-all flex flex-col items-center gap-1 select-none"
+                          style={{ backgroundColor: wallColors[item.type] ?? "#F5F5F5" }}
+                        >
+                          <span className="text-[11px] font-medium leading-tight text-center">{item.label}</span>
+                          <span className="text-[10px] text-muted-foreground">parede</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
@@ -872,7 +1040,7 @@ export default function EventEditor() {
             style={{
               width: canvasWidth,
               height: canvasHeight,
-              backgroundImage: `radial-gradient(circle, hsl(84,8%,72%) 1.2px, transparent 1.2px)`,
+              backgroundImage: `radial-gradient(circle, hsl(84,8%,60%) 0.7px, transparent 0.7px)`,
               backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
               backgroundPosition: "0 0",
               cursor: isPanningRef.current ? "grabbing" : "grab",
@@ -884,14 +1052,32 @@ export default function EventEditor() {
             onDragOver={handleDragOverCanvas}
             onDrop={handleDropCanvas}
           >
-            {floorItems.map((item) => {
+            {(() => {
+              const seatingTypes = ["round-table", "rectangle-table", "square-table", "couple-table"];
+              const tableNumberMap = new Map(
+                [...floorItems]
+                  .filter((fi) => seatingTypes.includes(fi.type))
+                  .sort((a, b) => a.id - b.id)
+                  .map((fi, i) => [fi.id, i + 1])
+              );
+              return floorItems.map((item) => {
               const assignedToTable = guests.filter((g) => g.floorItemId === item.id);
               const isFull = item.capacity > 0 && assignedToTable.length >= item.capacity;
               const isRound = item.type === "round-table";
               const isNonSeating = item.capacity === 0;
+              const isWallItem = WALL_ITEM_TYPES.has(item.type);
               const isDraggingThis = draggingId === item.id;
+              const tableNum = tableNumberMap.get(item.id);
+              const displayLabel = tableNum != null ? `Mesa ${tableNum}` : (item.label ?? item.type);
+
+              const wallItemStyle: Record<string, { bg: string; border: string; text: string }> = {
+                bathroom:        { bg: "#E8EEF8", border: "#6080C0", text: "#2A4080" },
+                entrance:        { bg: "#D4F0D0", border: "#4A9A4A", text: "#1A5A1A" },
+                "emergency-exit":{ bg: "#FFF0CC", border: "#D07020", text: "#7A3A00" },
+              };
 
               const pos = localPos[item.id] ?? { x: item.x, y: item.y };
+              const { w: displayW, h: displayH } = computeTableSize(item.type, item.capacity);
 
               return (
                 <div
@@ -901,8 +1087,11 @@ export default function EventEditor() {
                   onPointerMove={(e) => handleItemPointerMove(e, item)}
                   onPointerUp={(e) => handleItemPointerUp(e, item)}
                   onPointerCancel={(e) => handleItemPointerUp(e, item)}
-                  onMouseEnter={() => mode === "layout" && setHoveredItemId(item.id)}
-                  onMouseLeave={() => setHoveredItemId(null)}
+                  onMouseEnter={() => {
+                    if (mode === "layout") setHoveredItemId(item.id);
+                    if (mode === "assignment") setHoveredTableId(item.id);
+                  }}
+                  onMouseLeave={() => { setHoveredItemId(null); setHoveredTableId(null); }}
                   onDragOver={
                     mode === "assignment" && !isFull
                       ? handleDragOverTable
@@ -913,97 +1102,162 @@ export default function EventEditor() {
                       ? (e) => handleDropOnTable(e, item.id, item.capacity)
                       : undefined
                   }
-                  className={`absolute flex flex-col items-center justify-center border-2 transition-colors overflow-visible
-                    ${mode === "layout" ? "cursor-grab active:cursor-grabbing" : ""}
-                    ${mode === "assignment" && !isFull && !isNonSeating ? "hover:border-primary hover:bg-primary/5 cursor-default" : "cursor-default"}
-                    ${isFull ? "bg-muted/70 border-muted-foreground/30" : "bg-card border-border"}
-                    ${isDraggingThis ? "shadow-xl border-primary z-50" : "shadow-sm z-10"}
-                    ${mode === "assignment" && !isFull && !isNonSeating ? "hover:z-20" : ""}
-                  `}
+                  className="absolute overflow-visible"
                   style={{
                     left: pos.x,
                     top: pos.y,
-                    width: item.width,
-                    height: item.height,
-                    borderRadius: isRound ? "50%" : "8px",
+                    width: displayW,
+                    height: displayH,
                     touchAction: "none",
                     userSelect: "none",
                     transform: `rotate(${localRotation[item.id] ?? item.rotation ?? 0}deg)`,
                     transformOrigin: "center",
+                    zIndex: isDraggingThis ? 50 : 10,
                   }}
                 >
-                  {/* Controls — visible on hover in layout mode */}
-                  {mode === "layout" && hoveredItemId === item.id && (
-                    <>
-                      {/* Delete */}
-                      <button
-                        onClick={(e) => handleDeleteItem(e, item.id)}
-                        data-testid={`delete-item-${item.id}`}
-                        className="absolute -top-3 -right-3 w-6 h-6 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center shadow-md hover:bg-destructive/80 transition-colors z-50"
+                  {/* Chairs */}
+                  {getChairPositions(item.type, displayW, displayH, item.capacity).map((ch, i) => {
+                    const seatNum = i + 1;
+                    const guestInSeat = mode === "assignment"
+                      ? assignedToTable.find((g) => g.seatNumber === seatNum) ?? null
+                      : null;
+                    return (
+                      <div
+                        key={i}
+                        draggable={!!guestInSeat}
+                        onDragStart={guestInSeat ? (e) => { e.stopPropagation(); handleDragStartGuest(e, guestInSeat.id); } : undefined}
+                        className={`absolute flex items-center justify-center overflow-hidden select-none
+                          ${mode === "assignment" ? "rounded-[4px]" : "rounded-[3px]"}
+                          ${guestInSeat ? "border-[#727A68] cursor-grab" : "bg-white border-[#C9A990] cursor-default"}
+                        `}
+                        style={{
+                          left: ch.left,
+                          top: ch.top,
+                          width: ch.width,
+                          height: ch.height,
+                          transform: ch.transform,
+                          backgroundColor: guestInSeat ? "#B5C2B0" : "#FFFFFF",
+                          borderWidth: 1,
+                          borderStyle: "solid",
+                          transition: "background-color 0.25s ease",
+                          pointerEvents: guestInSeat ? "auto" : "none",
+                        }}
                       >
-                        <X className="w-3 h-3" />
-                      </button>
-                      {/* Rotate CCW */}
-                      <button
-                        onClick={(e) => handleRotate(e, item, -1)}
-                        data-testid={`rotate-ccw-${item.id}`}
-                        className="absolute -bottom-3 -left-3 w-6 h-6 bg-secondary text-secondary-foreground rounded-full flex items-center justify-center shadow-md hover:bg-secondary/80 transition-colors z-50"
-                        title="Girar -45°"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                      </button>
-                      {/* Angle badge */}
-                      <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[9px] font-semibold bg-card border rounded px-1 shadow-sm z-50 whitespace-nowrap pointer-events-none">
-                        {localRotation[item.id] ?? item.rotation ?? 0}°
+                        {guestInSeat && (
+                          <span
+                            className="text-[7px] font-semibold leading-none truncate px-0.5 pointer-events-none"
+                            style={{ color: "#2E3C2D" }}
+                          >
+                            {guestInSeat.name.split(" ")[0]}
+                          </span>
+                        )}
                       </div>
-                      {/* Rotate CW */}
-                      <button
-                        onClick={(e) => handleRotate(e, item, 1)}
-                        data-testid={`rotate-cw-${item.id}`}
-                        className="absolute -bottom-3 -right-3 w-6 h-6 bg-secondary text-secondary-foreground rounded-full flex items-center justify-center shadow-md hover:bg-secondary/80 transition-colors z-50"
-                        title="Girar +45°"
-                      >
-                        <RotateCw className="w-3 h-3" />
-                      </button>
-                    </>
-                  )}
+                    );
+                  })}
 
-                  <span className="text-[11px] font-semibold text-center px-2 leading-tight pointer-events-none">
-                    {item.label}
-                  </span>
-                  {item.capacity > 0 && (
-                    <span
-                      className={`text-[10px] mt-0.5 pointer-events-none ${
-                        isFull ? "text-destructive font-semibold" : "text-muted-foreground"
-                      }`}
-                    >
-                      {assignedToTable.length}/{item.capacity}
-                    </span>
-                  )}
-
-                  {/* Guest tags in assignment mode */}
-                  {mode === "assignment" && assignedToTable.length > 0 && (
-                    <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 flex flex-wrap gap-1 justify-center w-max max-w-[200px] pointer-events-none z-30">
-                      {assignedToTable.map((g) => (
-                        <div
-                          key={g.id}
-                          draggable
-                          onDragStart={(e) => {
-                            e.stopPropagation();
-                            handleDragStartGuest(e, g.id);
-                          }}
-                          data-testid={`assigned-guest-${g.id}`}
-                          className="text-[9px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-sm max-w-[90px] truncate pointer-events-auto cursor-grab hover:bg-primary/80 transition-colors"
-                          title={g.name}
+                  {/* Table body */}
+                  <div
+                    className={`absolute inset-0 flex flex-col items-center justify-center border-2 transition-colors overflow-visible
+                      ${mode === "layout" ? "cursor-grab active:cursor-grabbing" : "cursor-default"}
+                      ${isDraggingThis ? "shadow-xl border-primary" : "shadow-sm"}
+                      ${mode === "assignment" && !isFull && !isNonSeating ? "hover:border-primary/60" : ""}
+                    `}
+                    style={{
+                      backgroundColor: isWallItem
+                        ? wallItemStyle[item.type]?.bg ?? "#F5F5F5"
+                        : isFull ? "#F8FAFC" : "#FFFFFF",
+                      borderColor: isWallItem
+                        ? wallItemStyle[item.type]?.border ?? "#888"
+                        : isDraggingThis ? undefined : "#C9A990",
+                      borderRadius: isRound ? "50%" : isWallItem ? "6px" : "12px",
+                    }}
+                  >
+                    {/* Controls — visible on hover in layout mode */}
+                    {mode === "layout" && hoveredItemId === item.id && (
+                      <>
+                        {/* Delete */}
+                        <button
+                          onClick={(e) => handleDeleteItem(e, item.id)}
+                          data-testid={`delete-item-${item.id}`}
+                          className="absolute -top-3 -right-3 w-6 h-6 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center shadow-md hover:bg-destructive/80 transition-colors z-50"
                         >
-                          {g.name.split(" ")[0]}
+                          <X className="w-3 h-3" />
+                        </button>
+                        {/* Rotate CCW */}
+                        <button
+                          onClick={(e) => handleRotate(e, item, -1)}
+                          data-testid={`rotate-ccw-${item.id}`}
+                          className="absolute -bottom-3 -left-3 w-6 h-6 bg-secondary text-secondary-foreground rounded-full flex items-center justify-center shadow-md hover:bg-secondary/80 transition-colors z-50"
+                          title="Girar -45°"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                        </button>
+                        {/* Angle badge */}
+                        <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[9px] font-semibold bg-card border rounded px-1 shadow-sm z-50 whitespace-nowrap pointer-events-none">
+                          {localRotation[item.id] ?? item.rotation ?? 0}°
                         </div>
-                      ))}
+                        {/* Rotate CW */}
+                        <button
+                          onClick={(e) => handleRotate(e, item, 1)}
+                          data-testid={`rotate-cw-${item.id}`}
+                          className="absolute -bottom-3 -right-3 w-6 h-6 bg-secondary text-secondary-foreground rounded-full flex items-center justify-center shadow-md hover:bg-secondary/80 transition-colors z-50"
+                          title="Girar +45°"
+                        >
+                          <RotateCw className="w-3 h-3" />
+                        </button>
+                      </>
+                    )}
+
+                    {/* Center label — no circle, just text */}
+                    <div className="flex flex-col items-center justify-center pointer-events-none">
+                      <span
+                        className="text-[10px] font-bold text-center leading-tight px-1"
+                        style={{ color: isWallItem ? (wallItemStyle[item.type]?.text ?? "#333") : isFull ? "#5A3E2E" : isNonSeating ? "#6B5445" : "#3A4A38" }}
+                      >
+                        {displayLabel}
+                      </span>
+                      {item.capacity > 0 && (
+                        <span
+                          className="text-[9px] font-medium leading-none mt-0.5"
+                          style={{ color: isFull ? "#C9A990" : "#9BA89A" }}
+                        >
+                          {assignedToTable.length}/{item.capacity}
+                        </span>
+                      )}
                     </div>
-                  )}
+
+                    {/* Guest tooltip — assignment mode hover */}
+                    {mode === "assignment" && hoveredTableId === item.id && assignedToTable.length > 0 && (
+                      <div
+                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-[100] pointer-events-none"
+                        style={{ minWidth: 140 }}
+                      >
+                        <div className="bg-white border border-slate-200 rounded-lg shadow-xl px-3 py-2">
+                          <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                            {displayLabel} · {assignedToTable.length}/{item.capacity}
+                          </p>
+                          {[...assignedToTable]
+                            .sort((a, b) => (a.seatNumber ?? 0) - (b.seatNumber ?? 0))
+                            .map((g) => (
+                              <p key={g.id} className="text-[11px] text-slate-700 leading-[1.6] flex items-center gap-1.5">
+                                <span className="text-[9px] text-slate-300 font-mono w-3 text-right shrink-0">
+                                  {g.seatNumber ?? "·"}
+                                </span>
+                                {g.name}
+                              </p>
+                            ))}
+                        </div>
+                        {/* Arrow */}
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0"
+                          style={{ borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderTop: "6px solid #fff", filter: "drop-shadow(0 1px 0 #e2e8f0)" }}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
-            })}
+              });
+            })()}
           </div>
             </div>
           </div>
@@ -1068,12 +1322,258 @@ export default function EventEditor() {
             </div>
           </div>
 
-          <div className="p-4">
+          <div className="p-4 flex flex-col gap-2">
             <GuestManagementDialog eventId={eventId} />
+            <GuestImportDialog eventId={eventId} />
           </div>
         </aside>
       </div>
     </div>
+  );
+}
+
+// ── Guest Import Dialog ───────────────────────────────────────────────────
+
+type ParsedRow = { name: string; group?: string; phone?: string };
+
+function normalizeHeader(h: string): string {
+  return h.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+}
+
+function detectColumn(headers: string[], candidates: string[]): number {
+  return headers.findIndex((h) => candidates.includes(normalizeHeader(h)));
+}
+
+async function parseFile(file: File): Promise<ParsedRow[]> {
+  const xlsx = await import("xlsx");
+  const data = await file.arrayBuffer();
+  const workbook = xlsx.read(data, { type: "array" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows: string[][] = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as string[][];
+  if (rows.length < 2) return [];
+
+  const headers = rows[0].map(String);
+  const nameIdx   = detectColumn(headers, ["nome", "name", "convidado", "guest"]);
+  const groupIdx  = detectColumn(headers, ["grupo", "group", "mesa", "table", "familia", "familia"]);
+  const phoneIdx  = detectColumn(headers, ["telefone", "phone", "cel", "celular", "fone"]);
+
+  if (nameIdx === -1) throw new Error("Coluna 'Nome' não encontrada. Use um cabeçalho: nome, name ou convidado.");
+
+  return rows.slice(1)
+    .map((row) => ({
+      name:  String(row[nameIdx] ?? "").trim(),
+      group: groupIdx >= 0 ? String(row[groupIdx] ?? "").trim() || undefined : undefined,
+      phone: phoneIdx >= 0 ? String(row[phoneIdx] ?? "").trim() || undefined : undefined,
+    }))
+    .filter((r) => r.name.length > 0);
+}
+
+function GuestImportDialog({ eventId }: { eventId: number }) {
+  const queryClient = useQueryClient();
+  const createGuest = useCreateGuest();
+
+  const [open, setOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [rows, setRows] = useState<ParsedRow[]>([]);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [status, setStatus] = useState<"idle" | "importing" | "done">("idle");
+  const [progress, setProgress] = useState(0);
+  const [failCount, setFailCount] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const reset = () => {
+    setRows([]);
+    setParseError(null);
+    setFileName(null);
+    setStatus("idle");
+    setProgress(0);
+    setFailCount(0);
+  };
+
+  const handleFile = async (file: File) => {
+    setParseError(null);
+    setRows([]);
+    setFileName(file.name);
+    try {
+      const parsed = await parseFile(file);
+      if (parsed.length === 0) {
+        setParseError("Nenhuma linha válida encontrada na planilha.");
+        return;
+      }
+      setRows(parsed);
+    } catch (err) {
+      setParseError(err instanceof Error ? err.message : "Erro ao ler o arquivo.");
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  };
+
+  const handleImport = async () => {
+    setStatus("importing");
+    setProgress(0);
+    setFailCount(0);
+    let fails = 0;
+    for (let i = 0; i < rows.length; i++) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          createGuest.mutate(
+            { eventId, data: rows[i] },
+            { onSuccess: () => resolve(), onError: () => reject() }
+          );
+        });
+      } catch {
+        fails++;
+      }
+      setProgress(i + 1);
+    }
+    setFailCount(fails);
+    setStatus("done");
+    queryClient.invalidateQueries({ queryKey: getListGuestsQueryKey(eventId) });
+    queryClient.invalidateQueries({ queryKey: getGetEventStatsQueryKey(eventId) });
+  };
+
+  const handleClose = (v: boolean) => {
+    if (!v) reset();
+    setOpen(v);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogTrigger asChild>
+        <Button variant="outline" className="w-full" size="sm" data-testid="button-import-guests">
+          <FileSpreadsheet className="w-4 h-4 mr-2" />
+          Importar Planilha
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Importar Convidados via Planilha</DialogTitle>
+        </DialogHeader>
+
+        {status === "done" ? (
+          <div className="flex flex-col items-center gap-4 py-6">
+            <CheckCircle2 className="w-12 h-12 text-green-500" />
+            <div className="text-center">
+              <p className="text-lg font-semibold">
+                {progress - failCount} convidado{progress - failCount !== 1 ? "s" : ""} importado{progress - failCount !== 1 ? "s" : ""}
+              </p>
+              {failCount > 0 && (
+                <p className="text-sm text-destructive mt-1">{failCount} falha{failCount > 1 ? "s" : ""} ao importar</p>
+              )}
+            </div>
+            <Button onClick={() => handleClose(false)} className="w-full">Fechar</Button>
+          </div>
+        ) : status === "importing" ? (
+          <div className="flex flex-col items-center gap-4 py-8">
+            <Loader2 className="w-10 h-10 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">
+              Importando {progress} de {rows.length}...
+            </p>
+            <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-primary h-2 rounded-full transition-all"
+                style={{ width: `${(progress / rows.length) * 100}%` }}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {/* Drop zone */}
+            {rows.length === 0 && (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={handleDrop}
+                onClick={() => inputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center gap-3 cursor-pointer transition-colors
+                  ${dragging ? "border-primary bg-primary/5" : "border-muted-foreground/30 hover:border-primary/50 hover:bg-muted/40"}`}
+              >
+                <Upload className="w-8 h-8 text-muted-foreground" />
+                <div className="text-center">
+                  <p className="text-sm font-medium">Arraste um arquivo ou clique para selecionar</p>
+                  <p className="text-xs text-muted-foreground mt-1">Suporta .xlsx, .xls e .csv</p>
+                </div>
+                <input
+                  ref={inputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+                />
+              </div>
+            )}
+
+            {/* Format hint */}
+            {rows.length === 0 && !parseError && (
+              <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground space-y-1">
+                <p className="font-semibold text-foreground">Formato esperado:</p>
+                <p>A primeira linha deve ter cabeçalhos. Colunas reconhecidas:</p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  <li><span className="font-mono">nome</span> ou <span className="font-mono">name</span> — obrigatório</li>
+                  <li><span className="font-mono">grupo</span> ou <span className="font-mono">group</span> — opcional</li>
+                  <li><span className="font-mono">telefone</span> ou <span className="font-mono">phone</span> — opcional</li>
+                </ul>
+              </div>
+            )}
+
+            {/* Error */}
+            {parseError && (
+              <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3">
+                <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+                <p className="text-sm text-destructive">{parseError}</p>
+              </div>
+            )}
+
+            {/* Preview table */}
+            {rows.length > 0 && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-foreground">
+                    {rows.length} convidado{rows.length !== 1 ? "s" : ""} encontrado{rows.length !== 1 ? "s" : ""}
+                    <span className="text-muted-foreground font-normal"> em <span className="font-mono text-xs">{fileName}</span></span>
+                  </p>
+                  <button
+                    onClick={reset}
+                    className="text-xs text-muted-foreground hover:text-foreground underline"
+                  >
+                    Trocar arquivo
+                  </button>
+                </div>
+                <div className="border rounded-lg overflow-hidden max-h-56 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted sticky top-0">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Nome</th>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Grupo</th>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Telefone</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r, i) => (
+                        <tr key={i} className="border-t border-border/50 odd:bg-muted/20">
+                          <td className="px-3 py-1.5 font-medium">{r.name}</td>
+                          <td className="px-3 py-1.5 text-muted-foreground">{r.group ?? "—"}</td>
+                          <td className="px-3 py-1.5 text-muted-foreground">{r.phone ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <Button onClick={handleImport} className="w-full">
+                  Importar {rows.length} convidado{rows.length !== 1 ? "s" : ""}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

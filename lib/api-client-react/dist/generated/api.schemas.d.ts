@@ -114,11 +114,14 @@ export type FloorItemType = typeof FloorItemType[keyof typeof FloorItemType];
 export declare const FloorItemType: {
     readonly 'round-table': "round-table";
     readonly 'rectangle-table': "rectangle-table";
+    readonly 'square-table': "square-table";
     readonly 'couple-table': "couple-table";
     readonly 'buffet-table': "buffet-table";
     readonly stage: "stage";
     readonly bathroom: "bathroom";
     readonly 'dj-booth': "dj-booth";
+    readonly entrance: "entrance";
+    readonly 'emergency-exit': "emergency-exit";
 };
 export interface FloorItem {
     id: number;
@@ -138,11 +141,14 @@ export type FloorItemInputType = typeof FloorItemInputType[keyof typeof FloorIte
 export declare const FloorItemInputType: {
     readonly 'round-table': "round-table";
     readonly 'rectangle-table': "rectangle-table";
+    readonly 'square-table': "square-table";
     readonly 'couple-table': "couple-table";
     readonly 'buffet-table': "buffet-table";
     readonly stage: "stage";
     readonly bathroom: "bathroom";
     readonly 'dj-booth': "dj-booth";
+    readonly entrance: "entrance";
+    readonly 'emergency-exit': "emergency-exit";
 };
 export interface FloorItemInput {
     type: FloorItemInputType;
@@ -158,11 +164,14 @@ export type FloorItemUpdateType = typeof FloorItemUpdateType[keyof typeof FloorI
 export declare const FloorItemUpdateType: {
     readonly 'round-table': "round-table";
     readonly 'rectangle-table': "rectangle-table";
+    readonly 'square-table': "square-table";
     readonly 'couple-table': "couple-table";
     readonly 'buffet-table': "buffet-table";
     readonly stage: "stage";
     readonly bathroom: "bathroom";
     readonly 'dj-booth': "dj-booth";
+    readonly entrance: "entrance";
+    readonly 'emergency-exit': "emergency-exit";
 };
 export interface FloorItemUpdate {
     type?: FloorItemUpdateType;

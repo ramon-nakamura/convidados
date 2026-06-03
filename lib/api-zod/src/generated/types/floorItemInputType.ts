@@ -12,9 +12,12 @@ export type FloorItemInputType = typeof FloorItemInputType[keyof typeof FloorIte
 export const FloorItemInputType = {
   'round-table': 'round-table',
   'rectangle-table': 'rectangle-table',
+  'square-table': 'square-table',
   'couple-table': 'couple-table',
   'buffet-table': 'buffet-table',
   stage: 'stage',
   bathroom: 'bathroom',
   'dj-booth': 'dj-booth',
+  entrance: 'entrance',
+  'emergency-exit': 'emergency-exit',
 } as const;

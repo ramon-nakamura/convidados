@@ -133,11 +133,14 @@ export type FloorItemType = typeof FloorItemType[keyof typeof FloorItemType];
 export const FloorItemType = {
   'round-table': 'round-table',
   'rectangle-table': 'rectangle-table',
+  'square-table': 'square-table',
   'couple-table': 'couple-table',
   'buffet-table': 'buffet-table',
   stage: 'stage',
   bathroom: 'bathroom',
   'dj-booth': 'dj-booth',
+  entrance: 'entrance',
+  'emergency-exit': 'emergency-exit',
 } as const;
 
 export interface FloorItem {
@@ -161,11 +164,14 @@ export type FloorItemInputType = typeof FloorItemInputType[keyof typeof FloorIte
 export const FloorItemInputType = {
   'round-table': 'round-table',
   'rectangle-table': 'rectangle-table',
+  'square-table': 'square-table',
   'couple-table': 'couple-table',
   'buffet-table': 'buffet-table',
   stage: 'stage',
   bathroom: 'bathroom',
   'dj-booth': 'dj-booth',
+  entrance: 'entrance',
+  'emergency-exit': 'emergency-exit',
 } as const;
 
 export interface FloorItemInput {
@@ -185,11 +191,14 @@ export type FloorItemUpdateType = typeof FloorItemUpdateType[keyof typeof FloorI
 export const FloorItemUpdateType = {
   'round-table': 'round-table',
   'rectangle-table': 'rectangle-table',
+  'square-table': 'square-table',
   'couple-table': 'couple-table',
   'buffet-table': 'buffet-table',
   stage: 'stage',
   bathroom: 'bathroom',
   'dj-booth': 'dj-booth',
+  entrance: 'entrance',
+  'emergency-exit': 'emergency-exit',
 } as const;
 
 export interface FloorItemUpdate {
