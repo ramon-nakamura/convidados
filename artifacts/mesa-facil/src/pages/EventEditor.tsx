@@ -23,7 +23,7 @@ import {
 } from "@workspace/api-client-react/src/generated/api.schemas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, GripHorizontal, Users, Map as MapIcon, X, ZoomIn, ZoomOut, Maximize2, RotateCw, RotateCcw, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { ArrowLeft, GripHorizontal, Users, Map as MapIcon, X, ZoomIn, ZoomOut, Maximize2, RotateCw, RotateCcw, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Loader2, Crosshair } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -319,12 +319,14 @@ function computeAutoAssignments(
   return assignments;
 }
 
-const CANVAS_PRESETS = [
-  { label: "P", width: 800, height: 600 },
-  { label: "M", width: 1100, height: 780 },
-  { label: "G", width: 1440, height: 960 },
-  { label: "XG", width: 1800, height: 1200 },
-];
+type Room = { id: string; x: number; y: number; w: number; h: number };
+const VIRTUAL_W = 4000;
+const VIRTUAL_H = 2800;
+const ROOM_MIN_SIZE = 200;
+
+function isPointInAnyRoom(px: number, py: number, rooms: Room[]): boolean {
+  return rooms.some(r => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h);
+}
 
 const GRID_SIZE = 10; // px — dot grid spacing & snap unit
 
@@ -352,26 +354,151 @@ type ResizeState = {
   origY: number;
 };
 
+// ── RoomRect: a white floor-area rectangle with 8 resize handles ─────────────
+const ROOM_HANDLES = ["n","s","e","w","ne","nw","se","sw"] as const;
+type RoomHandle = (typeof ROOM_HANDLES)[number];
+
+function getHandleStyle(handle: RoomHandle): React.CSSProperties {
+  const S = 10;
+  const half = -S / 2;
+  const base: React.CSSProperties = {
+    position: "absolute", width: S, height: S,
+    background: "white", border: "1.5px solid #6366f1", borderRadius: 2, zIndex: 25,
+  };
+  if (handle === "n")  return { ...base, top: half, left: "50%", transform: "translateX(-50%)", cursor: "ns-resize" };
+  if (handle === "s")  return { ...base, bottom: half, left: "50%", transform: "translateX(-50%)", cursor: "ns-resize" };
+  if (handle === "e")  return { ...base, right: half, top: "50%", transform: "translateY(-50%)", cursor: "ew-resize" };
+  if (handle === "w")  return { ...base, left: half, top: "50%", transform: "translateY(-50%)", cursor: "ew-resize" };
+  if (handle === "ne") return { ...base, top: half, right: half, cursor: "nesw-resize" };
+  if (handle === "nw") return { ...base, top: half, left: half, cursor: "nwse-resize" };
+  if (handle === "se") return { ...base, bottom: half, right: half, cursor: "nwse-resize" };
+  return                        { ...base, bottom: half, left: half, cursor: "nesw-resize" }; // sw
+}
+
+function RoomRect({
+  room, mode, canDelete, merged, onDelete, onResizeDown, onResizeMove, onResizeUp,
+}: {
+  room: Room;
+  mode: "layout" | "assignment";
+  canDelete: boolean;
+  merged?: boolean;
+  onDelete: (id: string) => void;
+  onResizeDown: (e: React.PointerEvent<HTMLDivElement>, id: string, handle: string) => void;
+  onResizeMove: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onResizeUp: (e: React.PointerEvent<HTMLDivElement>) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const showControls = hovered && mode === "layout";
+  return (
+    <div
+      data-room-bg="true"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="absolute"
+      style={{
+        left: room.x, top: room.y, width: room.w, height: room.h,
+        background: merged ? "transparent" : "white",
+        border: merged
+          ? (showControls ? "1.5px dashed #6366f1" : "none")
+          : (showControls ? "1.5px solid #6366f1" : "1px solid rgba(0,0,0,0.08)"),
+        boxShadow: merged ? "none" : "0 1px 6px rgba(0,0,0,0.07)",
+        zIndex: 1,
+      }}
+    >
+      {showControls && canDelete && (
+        <button
+          className="absolute top-1 right-1 z-30 w-5 h-5 rounded bg-red-50 hover:bg-red-500 text-red-500 hover:text-white flex items-center justify-center text-xs font-bold transition-colors"
+          onClick={(e) => { e.stopPropagation(); onDelete(room.id); }}
+          title="Remover sala"
+          style={{ lineHeight: 1 }}
+        >
+          ×
+        </button>
+      )}
+      {showControls && ROOM_HANDLES.map(handle => (
+        <div
+          key={handle}
+          style={getHandleStyle(handle)}
+          onPointerDown={(e) => onResizeDown(e, room.id, handle)}
+          onPointerMove={onResizeMove}
+          onPointerUp={onResizeUp}
+          onPointerCancel={onResizeUp}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function roomsOverlap(a: Room, b: Room): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+// ── MergedRoomsLayer: SVG that renders the visual union of all rooms ──────────
+// Borders are clipped where rooms overlap each other (evenodd clipPath trick).
+function MergedRoomsLayer({ rooms }: { rooms: Room[] }) {
+  return (
+    <svg
+      style={{
+        position: "absolute", top: 0, left: 0,
+        width: VIRTUAL_W, height: VIRTUAL_H,
+        overflow: "visible", pointerEvents: "none", zIndex: 1,
+      }}
+    >
+      <defs>
+        {rooms.map((_room, i) => {
+          const others = rooms.filter((_, j) => j !== i);
+          const big = `M-9999,-9999 L${VIRTUAL_W + 9999},-9999 L${VIRTUAL_W + 9999},${VIRTUAL_H + 9999} L-9999,${VIRTUAL_H + 9999} Z`;
+          const cuts = others.map(r => `M${r.x - 1},${r.y - 1} L${r.x + r.w + 1},${r.y - 1} L${r.x + r.w + 1},${r.y + r.h + 1} L${r.x - 1},${r.y + r.h + 1} Z`).join(" ");
+          return (
+            <clipPath key={_room.id} id={`mrg-clip-${_room.id}`} clipPathUnits="userSpaceOnUse">
+              <path fillRule="evenodd" d={`${big} ${cuts}`} />
+            </clipPath>
+          );
+        })}
+      </defs>
+      {/* White fills — overlap naturally creates a solid white area */}
+      {rooms.map(room => (
+        <rect key={`mf-${room.id}`} x={room.x} y={room.y} width={room.w} height={room.h} fill="white" />
+      ))}
+      {/* Borders clipped to hide lines inside other rooms */}
+      {rooms.map(room => (
+        <rect
+          key={`mb-${room.id}`}
+          x={room.x} y={room.y} width={room.w} height={room.h}
+          fill="none"
+          stroke="rgba(0,0,0,0.12)"
+          strokeWidth={1}
+          clipPath={`url(#mrg-clip-${room.id})`}
+        />
+      ))}
+    </svg>
+  );
+}
+
 export default function EventEditor() {
   const { eventId: eventIdStr } = useParams();
   const eventId = parseInt(eventIdStr || "0", 10);
   const queryClient = useQueryClient();
 
   const [mode, setMode] = useState<"layout" | "assignment">("layout");
-  const [canvasWidth, setCanvasWidth] = useState(() => {
+  const [rooms, setRooms] = useState<Room[]>(() => {
     try {
-      const stored = localStorage.getItem(`canvas-size-${eventId}`);
-      if (stored) { const p = JSON.parse(stored); if (p.w) return p.w; }
+      const stored = localStorage.getItem(`canvas-rooms-${eventId}`);
+      if (stored) { const p = JSON.parse(stored); if (Array.isArray(p) && p.length) return p; }
+      const oldSize = localStorage.getItem(`canvas-size-${eventId}`);
+      if (oldSize) { const p = JSON.parse(oldSize); if (p.w && p.h) return [{ id: 'r0', x: 0, y: 0, w: p.w, h: p.h }]; }
     } catch { /* ignore */ }
-    return 800;
+    return [{ id: 'r0', x: 0, y: 0, w: 800, h: 600 }];
   });
-  const [canvasHeight, setCanvasHeight] = useState(() => {
-    try {
-      const stored = localStorage.getItem(`canvas-size-${eventId}`);
-      if (stored) { const p = JSON.parse(stored); if (p.h) return p.h; }
-    } catch { /* ignore */ }
-    return 600;
+  const [drawMode, setDrawMode] = useState(false);
+  const [drawing, setDrawing] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
+  const [mergedView, setMergedView] = useState<boolean>(() => {
+    try { return localStorage.getItem(`canvas-merged-${eventId}`) === "1"; } catch { return false; }
   });
+  // Derived bounding-box for wall-snap and backwards-compat with existing handlers
+  const canvasWidth  = rooms.reduce((m, r) => Math.max(m, r.x + r.w), 800);
+  const canvasHeight = rooms.reduce((m, r) => Math.max(m, r.y + r.h), 600);
 
   // Smooth pointer-drag state (for moving existing items)
   const [draggingId, setDraggingId] = useState<number | null>(null);
@@ -406,11 +533,13 @@ export default function EventEditor() {
     Object.fromEntries(ITEM_TYPES.map((it, i) => [i, it.capacity]))
   );
 
-  // Pan state
+  // Pan state (transform-based, infinite canvas)
   const isPanningRef = useRef(false);
+  const [pan, setPan] = useState({ x: 32, y: 32 });
+  const panStateRef = useRef({ x: 32, y: 32 });
   const panRef = useRef<{
-    startScrollX: number;
-    startScrollY: number;
+    startPanX: number;
+    startPanY: number;
     startPointerX: number;
     startPointerY: number;
   } | null>(null);
@@ -435,9 +564,36 @@ export default function EventEditor() {
     zoomRef.current = 1;
   }, []);
 
-  const canvasScrollRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+
+  const recenter = useCallback(() => {
+    if (!viewportRef.current) return;
+    const vp = viewportRef.current.getBoundingClientRect();
+    const rms = roomsRef.current;
+    if (!rms.length) return;
+    const minX = rms.reduce((m, r) => Math.min(m, r.x), Infinity);
+    const minY = rms.reduce((m, r) => Math.min(m, r.y), Infinity);
+    const maxX = rms.reduce((m, r) => Math.max(m, r.x + r.w), -Infinity);
+    const maxY = rms.reduce((m, r) => Math.max(m, r.y + r.h), -Infinity);
+    const z = zoomRef.current;
+    const p = {
+      x: (vp.width  - (maxX - minX) * z) / 2 - minX * z,
+      y: (vp.height - (maxY - minY) * z) / 2 - minY * z,
+    };
+    setPan(p);
+    panStateRef.current = p;
+  }, []);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const roomsRef = useRef<Room[]>(rooms);
+  const drawModeRef = useRef(false);
+  const roomResizeRef = useRef<{
+    id: string; handle: string;
+    startPointerX: number; startPointerY: number;
+    origX: number; origY: number; origW: number; origH: number;
+  } | null>(null);
+  const drawingRef = useRef<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
+  const isFirstRoomsLoad = useRef(true);
 
   const { data: event, isLoading: isLoadingEvent } = useGetEvent(eventId, {
     query: { enabled: !!eventId, queryKey: getGetEventQueryKey(eventId) },
@@ -457,17 +613,60 @@ export default function EventEditor() {
   const deleteFloorItem = useDeleteFloorItem();
   const updateGuest = useUpdateGuest();
 
-  // ── Persist canvas size to localStorage ─────────────────────────────────
+  // ── Persist rooms & mergedView to localStorage ────────────────────────────
   useEffect(() => {
+    if (!eventId) return;
+    try { localStorage.setItem(`canvas-rooms-${eventId}`, JSON.stringify(rooms)); } catch { /* ignore */ }
+  }, [eventId, rooms]);
+  useEffect(() => {
+    if (!eventId) return;
+    try { localStorage.setItem(`canvas-merged-${eventId}`, mergedView ? "1" : "0"); } catch { /* ignore */ }
+  }, [eventId, mergedView]);
+  // Reload rooms when navigating between events (same component instance, eventId changes)
+  useEffect(() => {
+    if (isFirstRoomsLoad.current) { isFirstRoomsLoad.current = false; return; }
+    if (!eventId) return;
     try {
-      localStorage.setItem(`canvas-size-${eventId}`, JSON.stringify({ w: canvasWidth, h: canvasHeight }));
+      const stored = localStorage.getItem(`canvas-rooms-${eventId}`);
+      if (stored) { const p = JSON.parse(stored); if (Array.isArray(p) && p.length) { setRooms(p); return; } }
+      const oldSize = localStorage.getItem(`canvas-size-${eventId}`);
+      if (oldSize) { const p = JSON.parse(oldSize); if (p?.w && p?.h) { setRooms([{ id: 'r0', x: 0, y: 0, w: p.w, h: p.h }]); return; } }
     } catch { /* ignore */ }
-  }, [eventId, canvasWidth, canvasHeight]);
+    setRooms([{ id: 'r0', x: 0, y: 0, w: 800, h: 600 }]);
+  }, [eventId]);
+
+  useEffect(() => { roomsRef.current = rooms; }, [rooms]);
+  useEffect(() => { drawingRef.current = drawing; }, [drawing]);
+  useEffect(() => { drawModeRef.current = drawMode; }, [drawMode]);
 
   // ── Keep stable refs in sync ─────────────────────────────────────────────
   useEffect(() => { floorItemsRef.current = floorItems; }, [floorItems]);
   useEffect(() => { localPosRef.current   = localPos;   }, [localPos]);
   useEffect(() => { localSizeRef.current  = localSize;  }, [localSize]);
+
+  // ── Stable guest display order (freeze on first appearance, never resort) ──
+  // guestOrderRef: guest id → stable position index
+  // groupAnchorRef: vocativo → minimum position of ANY member (even if already assigned)
+  //   This keeps a group's slot in the list fixed even when its first member is moved to a table.
+  const guestOrderRef = useRef<Map<number, number>>(new Map());
+  const groupAnchorRef = useRef<Map<string, number>>(new Map());
+  {
+    let maxPos = guestOrderRef.current.size > 0
+      ? Math.max(...guestOrderRef.current.values())
+      : -1;
+    for (const g of guests) {
+      if (!guestOrderRef.current.has(g.id)) {
+        guestOrderRef.current.set(g.id, ++maxPos);
+      }
+      if (g.vocativo) {
+        const gPos = guestOrderRef.current.get(g.id)!;
+        const prev = groupAnchorRef.current.get(g.vocativo);
+        if (prev === undefined || gPos < prev) {
+          groupAnchorRef.current.set(g.vocativo, gPos);
+        }
+      }
+    }
+  }
 
   // ── Re-snap wall items when canvas is resized ────────────────────────────
   useEffect(() => {
@@ -505,7 +704,7 @@ export default function EventEditor() {
 
   // ── Ctrl+Wheel zoom ─────────────────────────────────────────────────────
   useEffect(() => {
-    const el = canvasScrollRef.current;
+    const el = viewportRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
@@ -547,35 +746,73 @@ export default function EventEditor() {
     setAutoAssignResult({ placed, skipped });
   }, [guests, floorItems, autoAssignOnlyUnassigned, updateGuest, eventId, queryClient]);
 
-  // ── Pan handlers (drag canvas background to scroll) ─────────────────────
+  // ── Pan / draw-room handlers ─────────────────────────────────────────────
   const handleCanvasPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.target !== containerRef.current) return;
+      const target = e.target as HTMLElement;
+      const isBackground =
+        target === containerRef.current || target.dataset.roomBg === 'true';
+      if (!isBackground) return;
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
-      isPanningRef.current = true;
-      panRef.current = {
-        startScrollX: canvasScrollRef.current?.scrollLeft ?? 0,
-        startScrollY: canvasScrollRef.current?.scrollTop ?? 0,
-        startPointerX: e.clientX,
-        startPointerY: e.clientY,
-      };
+      if (drawModeRef.current) {
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const z = zoomRef.current;
+        const sx = snapToGrid((e.clientX - rect.left) / z);
+        const sy = snapToGrid((e.clientY - rect.top) / z);
+        const init = { startX: sx, startY: sy, endX: sx, endY: sy };
+        drawingRef.current = init;
+        setDrawing(init);
+      } else {
+        isPanningRef.current = true;
+        panRef.current = {
+          startPanX: panStateRef.current.x,
+          startPanY: panStateRef.current.y,
+          startPointerX: e.clientX,
+          startPointerY: e.clientY,
+        };
+      }
     },
-    []
+    [] // refs handle drawMode — no stale closure
   );
 
   const handleCanvasPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!isPanningRef.current || !panRef.current || !canvasScrollRef.current) return;
+      if (drawingRef.current) {
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const z = zoomRef.current;
+        const ex = snapToGrid((e.clientX - rect.left) / z);
+        const ey = snapToGrid((e.clientY - rect.top) / z);
+        setDrawing(prev => prev ? { ...prev, endX: ex, endY: ey } : null);
+        return;
+      }
+      if (!isPanningRef.current || !panRef.current) return;
       const dx = e.clientX - panRef.current.startPointerX;
       const dy = e.clientY - panRef.current.startPointerY;
-      canvasScrollRef.current.scrollLeft = panRef.current.startScrollX - dx;
-      canvasScrollRef.current.scrollTop = panRef.current.startScrollY - dy;
+      const np = { x: panRef.current.startPanX + dx, y: panRef.current.startPanY + dy };
+      setPan(np);
+      panStateRef.current = np;
     },
     []
   );
 
   const handleCanvasPointerUp = useCallback(() => {
+    const d = drawingRef.current;
+    if (d) {
+      const x = Math.min(d.startX, d.endX);
+      const y = Math.min(d.startY, d.endY);
+      const w = Math.abs(d.endX - d.startX);
+      const h = Math.abs(d.endY - d.startY);
+      if (w >= ROOM_MIN_SIZE && h >= ROOM_MIN_SIZE) {
+        setRooms(prev => [...prev, { id: `r${Date.now()}`, x, y, w, h }]);
+      }
+      drawingRef.current = null;
+      setDrawing(null);
+      setDrawMode(false);
+      drawModeRef.current = false;
+    }
     isPanningRef.current = false;
     panRef.current = null;
   }, []);
@@ -636,8 +873,8 @@ export default function EventEditor() {
         const snapped = snapToWall(snapToGrid(rawX), snapToGrid(rawY), dW, dH, canvasWidth, canvasHeight, WALL_SNAP_THRESHOLD);
         setLocalPos((prev) => ({ ...prev, [item.id]: snapped }));
       } else {
-        const newX = Math.max(0, Math.min(snapToGrid(rawX), canvasWidth - dW));
-        const newY = Math.max(0, Math.min(snapToGrid(rawY), canvasHeight - dH));
+        const newX = Math.max(0, Math.min(snapToGrid(rawX), VIRTUAL_W - dW));
+        const newY = Math.max(0, Math.min(snapToGrid(rawY), VIRTUAL_H - dH));
         setLocalPos((prev) => ({ ...prev, [item.id]: { x: newX, y: newY } }));
       }
     },
@@ -650,9 +887,20 @@ export default function EventEditor() {
       if (!dragRef.current || dragRef.current.id !== item.id) return;
       const raw = localPos[item.id] ?? { x: item.x, y: item.y };
       let pos = { x: snapToGrid(raw.x), y: snapToGrid(raw.y) };
+      const { w: dW, h: dH } = WALL_ITEM_TYPES.has(item.type)
+        ? (localSize[item.id] ?? { w: item.width, h: item.height })
+        : computeTableSize(item.type, item.capacity);
       if (WALL_ITEM_TYPES.has(item.type)) {
-        const { w: dW, h: dH } = localSize[item.id] ?? { w: item.width, h: item.height };
         pos = snapToWall(pos.x, pos.y, dW, dH, canvasWidth, canvasHeight);
+      } else {
+        // Revert to origin if item center landed outside every room
+        if (!isPointInAnyRoom(pos.x + dW / 2, pos.y + dH / 2, roomsRef.current)) {
+          const origPos = { x: dragRef.current!.itemOriginX, y: dragRef.current!.itemOriginY };
+          setLocalPos((prev) => ({ ...prev, [item.id]: origPos }));
+          dragRef.current = null;
+          setDraggingId(null);
+          return;
+        }
       }
       setLocalPos((prev) => ({ ...prev, [item.id]: pos }));
       updateFloorItem.mutate(
@@ -720,6 +968,46 @@ export default function EventEditor() {
     [localSize, localPos, eventId, updateFloorItem, queryClient]
   );
 
+  // ── Room resize handlers ─────────────────────────────────────────────────
+  const handleRoomResizeDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>, roomId: string, handle: string) => {
+      e.stopPropagation();
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      const room = roomsRef.current.find(r => r.id === roomId);
+      if (!room) return;
+      roomResizeRef.current = {
+        id: roomId, handle,
+        startPointerX: e.clientX, startPointerY: e.clientY,
+        origX: room.x, origY: room.y, origW: room.w, origH: room.h,
+      };
+    },
+    []
+  );
+
+  const handleRoomResizeMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const state = roomResizeRef.current;
+      if (!state) return;
+      e.stopPropagation();
+      const z = zoomRef.current;
+      const dx = (e.clientX - state.startPointerX) / z;
+      const dy = (e.clientY - state.startPointerY) / z;
+      const { handle, origX, origY, origW, origH } = state;
+      let newX = origX, newY = origY, newW = origW, newH = origH;
+      if (handle.includes('e')) newW = Math.max(ROOM_MIN_SIZE, snapToGrid(origW + dx));
+      if (handle.includes('w')) { newW = Math.max(ROOM_MIN_SIZE, snapToGrid(origW - dx)); newX = snapToGrid(origX + origW - newW); }
+      if (handle.includes('s')) newH = Math.max(ROOM_MIN_SIZE, snapToGrid(origH + dy));
+      if (handle.includes('n')) { newH = Math.max(ROOM_MIN_SIZE, snapToGrid(origH - dy)); newY = snapToGrid(origY + origH - newH); }
+      setRooms(prev => prev.map(r => r.id === state.id ? { ...r, x: newX, y: newY, w: newW, h: newH } : r));
+    },
+    []
+  );
+
+  const handleRoomResizeUp = useCallback(() => {
+    roomResizeRef.current = null;
+  }, []);
+
   // ── HTML5 DnD: drop NEW items from toolbar onto canvas ──────────────────
   const handleDragStartNewItem = (
     e: React.DragEvent,
@@ -748,10 +1036,12 @@ export default function EventEditor() {
     const { w: cW, h: cH } = computeTableSize(data.type, data.capacity);
     const rawX = (e.clientX - rect.left) / z - cW / 2;
     const rawY = (e.clientY - rect.top) / z - cH / 2;
-    let x = Math.max(0, Math.min(snapToGrid(rawX), canvasWidth - cW));
-    let y = Math.max(0, Math.min(snapToGrid(rawY), canvasHeight - cH));
+    let x = Math.max(0, Math.min(snapToGrid(rawX), VIRTUAL_W - cW));
+    let y = Math.max(0, Math.min(snapToGrid(rawY), VIRTUAL_H - cH));
     if (WALL_ITEM_TYPES.has(data.type)) {
       ({ x, y } = snapToWall(x, y, cW, cH, canvasWidth, canvasHeight));
+    } else if (!isPointInAnyRoom(x + cW / 2, y + cH / 2, roomsRef.current)) {
+      return; // Reject drop outside any room
     }
     const newItem: FloorItemInput = {
       type: data.type as FloorItemInputType,
@@ -765,13 +1055,25 @@ export default function EventEditor() {
     };
     createFloorItem.mutate(
       { eventId, data: newItem },
-      { onSuccess: () => queryClient.invalidateQueries({ queryKey: getListFloorItemsQueryKey(eventId) }) }
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListFloorItemsQueryKey(eventId) });
+          queryClient.invalidateQueries({ queryKey: getGetEventStatsQueryKey(eventId) });
+        },
+      }
     );
   };
 
   // ── HTML5 DnD: guest assignment ─────────────────────────────────────────
   const handleDragStartGuest = (e: React.DragEvent, guestId: number) => {
+    e.stopPropagation();
     e.dataTransfer.setData("guestId", guestId.toString());
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragStartGroup = (e: React.DragEvent, guestIds: number[]) => {
+    e.stopPropagation();
+    e.dataTransfer.setData("guestIds", JSON.stringify(guestIds));
     e.dataTransfer.effectAllowed = "move";
   };
 
@@ -788,6 +1090,34 @@ export default function EventEditor() {
   ) => {
     e.preventDefault();
     e.stopPropagation();
+
+    const invalidate = () => {
+      queryClient.invalidateQueries({ queryKey: getListGuestsQueryKey(eventId) });
+      queryClient.invalidateQueries({ queryKey: getGetEventStatsQueryKey(eventId) });
+    };
+
+    // ── Group drop ──────────────────────────────────────────────────────────
+    const guestIdsStr = e.dataTransfer.getData("guestIds");
+    if (guestIdsStr) {
+      const guestIds: number[] = JSON.parse(guestIdsStr);
+      const assignedGuests = guests.filter((g) => g.floorItemId === floorItemId);
+      const freeCount = capacity > 0 ? capacity - assignedGuests.length : Infinity;
+      if (freeCount < guestIds.length) return; // not enough seats for whole group
+      const occupied = new Set(assignedGuests.map((g) => g.seatNumber).filter(Boolean));
+      const freeSeats: number[] = [];
+      for (let i = 1; i <= capacity && freeSeats.length < guestIds.length; i++) {
+        if (!occupied.has(i)) freeSeats.push(i);
+      }
+      guestIds.forEach((guestId, idx) => {
+        updateGuest.mutate(
+          { eventId, guestId, data: { floorItemId, seatNumber: freeSeats[idx] } },
+          idx === guestIds.length - 1 ? { onSuccess: invalidate } : {}
+        );
+      });
+      return;
+    }
+
+    // ── Single guest drop ───────────────────────────────────────────────────
     const guestIdStr = e.dataTransfer.getData("guestId");
     if (!guestIdStr) return;
     const guestId = parseInt(guestIdStr, 10);
@@ -800,12 +1130,7 @@ export default function EventEditor() {
     }
     updateGuest.mutate(
       { eventId, guestId, data: { floorItemId, seatNumber: nextSeat } },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListGuestsQueryKey(eventId) });
-          queryClient.invalidateQueries({ queryKey: getGetEventStatsQueryKey(eventId) });
-        },
-      }
+      { onSuccess: invalidate }
     );
   };
 
@@ -971,31 +1296,42 @@ export default function EventEditor() {
                 </div>
               </div>
 
-              {/* Canvas size controls */}
+              {/* Room drawing tool */}
               <div className="border-t pt-4">
-                <h2 className="font-semibold text-sm text-foreground mb-2">Tamanho do Espaço</h2>
-                <div className="flex gap-1.5">
-                  {CANVAS_PRESETS.map((preset) => (
-                    <button
-                      key={preset.label}
-                      onClick={() => {
-                        setCanvasWidth(preset.width);
-                        setCanvasHeight(preset.height);
-                      }}
-                      data-testid={`canvas-preset-${preset.label}`}
-                      className={`flex-1 py-1.5 rounded border text-xs font-semibold transition-all ${
-                        canvasWidth === preset.width && canvasHeight === preset.height
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-background text-muted-foreground border-border hover:border-primary hover:text-foreground"
-                      }`}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1.5">
-                  {canvasWidth} × {canvasHeight} px
-                </p>
+                <h2 className="font-semibold text-sm text-foreground mb-2">Espaço do Evento</h2>
+                <button
+                  onClick={() => { setDrawMode(d => !d); drawModeRef.current = !drawModeRef.current; }}
+                  className={`w-full py-1.5 rounded border text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                    drawMode
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground border-border hover:border-primary hover:text-foreground"
+                  }`}
+                >
+                  {drawMode ? '✕ Cancelar desenho' : '+ Desenhar sala'}
+                </button>
+                {rooms.length > 1 && !drawMode && (
+                  <button
+                    onClick={() => setMergedView(v => !v)}
+                    className={`mt-1.5 w-full py-1.5 rounded border text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                      mergedView
+                        ? "bg-indigo-50 text-indigo-700 border-indigo-300 hover:bg-indigo-100"
+                        : "bg-background text-muted-foreground border-border hover:border-indigo-300 hover:text-indigo-600"
+                    }`}
+                  >
+                    {mergedView ? '⬡ Mesclar: ativo' : '⬡ Mesclar áreas'}
+                  </button>
+                )}
+                {drawMode && (
+                  <p className="text-[11px] text-muted-foreground mt-1.5 text-center">
+                    Clique e arraste no mapa para desenhar
+                  </p>
+                )}
+                {!drawMode && (
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    {rooms.length} sala{rooms.length !== 1 ? 's' : ''} · hover para redimensionar
+                    {mergedView && " · bordas internas ocultas"}
+                  </p>
+                )}
               </div>
             </div>
           ) : (
@@ -1106,7 +1442,9 @@ export default function EventEditor() {
                 data-testid="unassigned-drop-zone"
               >
                 {(() => {
-                  const unassigned = guests.filter((g) => g.floorItemId == null);
+                  const unassigned = guests
+                    .filter((g) => g.floorItemId == null)
+                    .sort((a, b) => (guestOrderRef.current.get(a.id) ?? 0) - (guestOrderRef.current.get(b.id) ?? 0));
                   if (unassigned.length === 0) {
                     return (
                       <div className="text-center py-8 text-muted-foreground text-sm border border-dashed rounded-lg">
@@ -1132,11 +1470,30 @@ export default function EventEditor() {
                     }
                   }
 
+                  // Sort groups by their stable anchor position so removing a member
+                  // never causes the group to jump to a different slot in the list.
+                  grouped.sort((a, b) => {
+                    const posA = a.vocativo
+                      ? (groupAnchorRef.current.get(a.vocativo) ?? guestOrderRef.current.get(a.guests[0]?.id) ?? 0)
+                      : (guestOrderRef.current.get(a.guests[0]?.id) ?? 0);
+                    const posB = b.vocativo
+                      ? (groupAnchorRef.current.get(b.vocativo) ?? guestOrderRef.current.get(b.guests[0]?.id) ?? 0)
+                      : (guestOrderRef.current.get(b.guests[0]?.id) ?? 0);
+                    return posA - posB;
+                  });
+
                   return grouped.map((group, gi) => (
-                    <div key={gi} className={group.vocativo ? "rounded-lg border border-border/70 bg-muted/30 p-2 space-y-1.5" : ""}>
+                    <div
+                      key={group.vocativo ?? `solo-${group.guests[0]?.id ?? gi}`}
+                      draggable={!!group.vocativo}
+                      onDragStart={group.vocativo ? (e) => handleDragStartGroup(e, group.guests.map((g) => g.id)) : undefined}
+                      className={group.vocativo ? "rounded-lg border border-border/70 bg-muted/30 p-2 space-y-1.5 cursor-grab active:cursor-grabbing" : ""}
+                    >
                       {group.vocativo && (
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-1 truncate" title={group.vocativo}>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-1 truncate flex items-center gap-1.5" title={`Arrastar grupo: ${group.vocativo}`}>
+                          <GripHorizontal className="w-3 h-3 shrink-0 opacity-50" />
                           👨‍👩‍👧 {group.vocativo}
+                          <span className="ml-auto text-[9px] font-normal opacity-60 normal-case tracking-normal">{group.guests.length} pessoas</span>
                         </p>
                       )}
                       {group.guests.map((guest) => (
@@ -1175,70 +1532,24 @@ export default function EventEditor() {
         </aside>
 
         {/* Center Canvas */}
-        <div
-          ref={canvasScrollRef}
-          className="flex-1 bg-muted/40 overflow-auto relative"
-        >
-          {/* Floating zoom controls */}
-          <div className="absolute bottom-5 right-5 z-30 flex items-center gap-1 bg-card border shadow-lg rounded-lg px-2 py-1.5">
-            <button
-              onClick={() => applyZoom(-ZOOM_STEP)}
-              disabled={zoom <= ZOOM_MIN}
-              data-testid="zoom-out"
-              className="w-7 h-7 flex items-center justify-center rounded hover:bg-muted disabled:opacity-40 transition-colors"
-              title="Diminuir zoom (Ctrl + Scroll)"
-            >
-              <ZoomOut className="w-4 h-4" />
-            </button>
-            <button
-              onClick={resetZoom}
-              data-testid="zoom-reset"
-              className="min-w-[48px] text-center text-xs font-semibold tabular-nums hover:bg-muted rounded px-1 py-0.5 transition-colors"
-              title="Resetar zoom"
-            >
-              {Math.round(zoom * 100)}%
-            </button>
-            <button
-              onClick={() => applyZoom(ZOOM_STEP)}
-              disabled={zoom >= ZOOM_MAX}
-              data-testid="zoom-in"
-              className="w-7 h-7 flex items-center justify-center rounded hover:bg-muted disabled:opacity-40 transition-colors"
-              title="Aumentar zoom (Ctrl + Scroll)"
-            >
-              <ZoomIn className="w-4 h-4" />
-            </button>
-            <div className="w-px h-4 bg-border mx-0.5" />
-            <button
-              onClick={resetZoom}
-              data-testid="zoom-fit"
-              className="w-7 h-7 flex items-center justify-center rounded hover:bg-muted transition-colors"
-              title="Zoom 100%"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Scrollable zoom wrapper */}
-          <div className="p-8 inline-block min-w-full min-h-full">
-            <div
-              style={{
-                transform: `scale(${zoom})`,
-                transformOrigin: "top left",
-                width: canvasWidth,
-                height: canvasHeight,
-              }}
-            >
+        <div className="flex-1 relative overflow-hidden">
+          <div
+            ref={viewportRef}
+            className="absolute inset-0 bg-muted/40 overflow-hidden"
+          >
           <div
             ref={containerRef}
             data-testid="floor-canvas"
-            className="relative bg-white border shadow-lg"
+            className="relative"
             style={{
-              width: canvasWidth,
-              height: canvasHeight,
+              width: VIRTUAL_W,
+              height: VIRTUAL_H,
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: "0 0",
               backgroundImage: `radial-gradient(circle, hsl(84,8%,60%) 0.7px, transparent 0.7px)`,
               backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
               backgroundPosition: "0 0",
-              cursor: isPanningRef.current ? "grabbing" : "grab",
+              cursor: drawMode ? 'crosshair' : isPanningRef.current ? "grabbing" : "grab",
             }}
             onPointerDown={handleCanvasPointerDown}
             onPointerMove={handleCanvasPointerMove}
@@ -1247,6 +1558,36 @@ export default function EventEditor() {
             onDragOver={handleDragOverCanvas}
             onDrop={handleDropCanvas}
           >
+            {/* Room floor areas — merged SVG layer or individual rects */}
+            {mergedView && rooms.length > 1
+              ? <MergedRoomsLayer rooms={rooms} />
+              : null}
+            {rooms.map(room => (
+              <RoomRect
+                key={room.id}
+                room={room}
+                mode={mode}
+                merged={mergedView && rooms.length > 1}
+                canDelete={rooms.length > 1}
+                onDelete={(id) => setRooms(prev => prev.filter(r => r.id !== id))}
+                onResizeDown={handleRoomResizeDown}
+                onResizeMove={handleRoomResizeMove}
+                onResizeUp={handleRoomResizeUp}
+              />
+            ))}
+            {/* In-progress drawing preview */}
+            {drawing && (() => {
+              const dx = Math.min(drawing.startX, drawing.endX);
+              const dy = Math.min(drawing.startY, drawing.endY);
+              const dw = Math.abs(drawing.endX - drawing.startX);
+              const dh = Math.abs(drawing.endY - drawing.startY);
+              return (
+                <div
+                  className="absolute border-2 border-dashed border-primary bg-primary/10 pointer-events-none"
+                  style={{ left: dx, top: dy, width: dw, height: dh, zIndex: 100 }}
+                />
+              );
+            })()}
             {(() => {
               const seatingTypes = ["round-table", "rectangle-table", "square-table", "couple-table"];
               const tableNumberMap = new Map(
@@ -1489,7 +1830,52 @@ export default function EventEditor() {
               });
             })()}
           </div>
-            </div>
+          </div>
+          {/* Floating zoom controls — always fixed to bottom-right of map area */}
+          <div className="absolute bottom-5 right-5 z-30 flex items-center gap-1 bg-card border shadow-lg rounded-lg px-2 py-1.5">
+            <button
+              onClick={() => applyZoom(-ZOOM_STEP)}
+              disabled={zoom <= ZOOM_MIN}
+              data-testid="zoom-out"
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-muted disabled:opacity-40 transition-colors"
+              title="Diminuir zoom (Ctrl + Scroll)"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <button
+              onClick={resetZoom}
+              data-testid="zoom-reset"
+              className="min-w-[48px] text-center text-xs font-semibold tabular-nums hover:bg-muted rounded px-1 py-0.5 transition-colors"
+              title="Resetar zoom"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              onClick={() => applyZoom(ZOOM_STEP)}
+              disabled={zoom >= ZOOM_MAX}
+              data-testid="zoom-in"
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-muted disabled:opacity-40 transition-colors"
+              title="Aumentar zoom (Ctrl + Scroll)"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+            <div className="w-px h-4 bg-border mx-0.5" />
+            <button
+              onClick={recenter}
+              data-testid="recenter"
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-muted transition-colors"
+              title="Centralizar composição"
+            >
+              <Crosshair className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={resetZoom}
+              data-testid="zoom-fit"
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-muted transition-colors"
+              title="Zoom 100%"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
 
