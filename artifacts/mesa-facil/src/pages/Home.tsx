@@ -268,6 +268,12 @@ export default function Home() {
                         Editor
                       </Button>
                     </Link>
+                    <Link href={`/events/${event.id}/guests`} className="flex-1">
+                      <Button variant="outline" size="sm" className="w-full">
+                        <Users className="w-3.5 h-3.5 mr-1.5" />
+                        Convidados
+                      </Button>
+                    </Link>
                     <Link href={`/events/${event.id}/checkin`} className="flex-1">
                       <Button size="sm" className="w-full">
                         Check-in

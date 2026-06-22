@@ -5,6 +5,7 @@
  * MesaFácil API - Plataforma de gestão de eventos e mapas de assentos
  * OpenAPI spec version: 1.0.0
  */
+import type { GuestInputStatus } from './guestInputStatus';
 
 export interface GuestInput {
   /** @minLength 1 */
@@ -15,4 +16,5 @@ export interface GuestInput {
   gender?: string;
   ageRange?: string;
   notes?: string;
+  status?: GuestInputStatus;
 }

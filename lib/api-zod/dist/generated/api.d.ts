@@ -246,12 +246,14 @@ export declare const ListGuestsResponseItem: zod.ZodObject<{
     gender: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     ageRange: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     notes: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    status: zod.ZodEnum<["confirmado", "nao_comparecera", "nao_respondeu"]>;
     checkedIn: zod.ZodBoolean;
     checkedInAt: zod.ZodOptional<zod.ZodNullable<zod.ZodDate>>;
     floorItemId: zod.ZodOptional<zod.ZodNullable<zod.ZodNumber>>;
     seatNumber: zod.ZodOptional<zod.ZodNullable<zod.ZodNumber>>;
     createdAt: zod.ZodDate;
 }, "strip", zod.ZodTypeAny, {
+    status: "confirmado" | "nao_comparecera" | "nao_respondeu";
     id: number;
     name: string;
     createdAt: Date;
@@ -267,6 +269,7 @@ export declare const ListGuestsResponseItem: zod.ZodObject<{
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
 }, {
+    status: "confirmado" | "nao_comparecera" | "nao_respondeu";
     id: number;
     name: string;
     createdAt: Date;
@@ -292,12 +295,14 @@ export declare const ListGuestsResponse: zod.ZodArray<zod.ZodObject<{
     gender: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     ageRange: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     notes: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    status: zod.ZodEnum<["confirmado", "nao_comparecera", "nao_respondeu"]>;
     checkedIn: zod.ZodBoolean;
     checkedInAt: zod.ZodOptional<zod.ZodNullable<zod.ZodDate>>;
     floorItemId: zod.ZodOptional<zod.ZodNullable<zod.ZodNumber>>;
     seatNumber: zod.ZodOptional<zod.ZodNullable<zod.ZodNumber>>;
     createdAt: zod.ZodDate;
 }, "strip", zod.ZodTypeAny, {
+    status: "confirmado" | "nao_comparecera" | "nao_respondeu";
     id: number;
     name: string;
     createdAt: Date;
@@ -313,6 +318,7 @@ export declare const ListGuestsResponse: zod.ZodArray<zod.ZodObject<{
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
 }, {
+    status: "confirmado" | "nao_comparecera" | "nao_respondeu";
     id: number;
     name: string;
     createdAt: Date;
@@ -346,8 +352,10 @@ export declare const CreateGuestBody: zod.ZodObject<{
     gender: zod.ZodOptional<zod.ZodString>;
     ageRange: zod.ZodOptional<zod.ZodString>;
     notes: zod.ZodOptional<zod.ZodString>;
+    status: zod.ZodOptional<zod.ZodEnum<["confirmado", "nao_comparecera", "nao_respondeu"]>>;
 }, "strip", zod.ZodTypeAny, {
     name: string;
+    status?: "confirmado" | "nao_comparecera" | "nao_respondeu" | undefined;
     notes?: string | undefined;
     phone?: string | undefined;
     group?: string | undefined;
@@ -356,6 +364,7 @@ export declare const CreateGuestBody: zod.ZodObject<{
     ageRange?: string | undefined;
 }, {
     name: string;
+    status?: "confirmado" | "nao_comparecera" | "nao_respondeu" | undefined;
     notes?: string | undefined;
     phone?: string | undefined;
     group?: string | undefined;
@@ -384,9 +393,11 @@ export declare const UpdateGuestBody: zod.ZodObject<{
     gender: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     ageRange: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     notes: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    status: zod.ZodOptional<zod.ZodEnum<["confirmado", "nao_comparecera", "nao_respondeu"]>>;
     floorItemId: zod.ZodOptional<zod.ZodNullable<zod.ZodNumber>>;
     seatNumber: zod.ZodOptional<zod.ZodNullable<zod.ZodNumber>>;
 }, "strip", zod.ZodTypeAny, {
+    status?: "confirmado" | "nao_comparecera" | "nao_respondeu" | undefined;
     name?: string | undefined;
     notes?: string | null | undefined;
     phone?: string | null | undefined;
@@ -397,6 +408,7 @@ export declare const UpdateGuestBody: zod.ZodObject<{
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
 }, {
+    status?: "confirmado" | "nao_comparecera" | "nao_respondeu" | undefined;
     name?: string | undefined;
     notes?: string | null | undefined;
     phone?: string | null | undefined;
@@ -417,12 +429,14 @@ export declare const UpdateGuestResponse: zod.ZodObject<{
     gender: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     ageRange: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     notes: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    status: zod.ZodEnum<["confirmado", "nao_comparecera", "nao_respondeu"]>;
     checkedIn: zod.ZodBoolean;
     checkedInAt: zod.ZodOptional<zod.ZodNullable<zod.ZodDate>>;
     floorItemId: zod.ZodOptional<zod.ZodNullable<zod.ZodNumber>>;
     seatNumber: zod.ZodOptional<zod.ZodNullable<zod.ZodNumber>>;
     createdAt: zod.ZodDate;
 }, "strip", zod.ZodTypeAny, {
+    status: "confirmado" | "nao_comparecera" | "nao_respondeu";
     id: number;
     name: string;
     createdAt: Date;
@@ -438,6 +452,7 @@ export declare const UpdateGuestResponse: zod.ZodObject<{
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
 }, {
+    status: "confirmado" | "nao_comparecera" | "nao_respondeu";
     id: number;
     name: string;
     createdAt: Date;
@@ -489,12 +504,14 @@ export declare const ToggleGuestCheckinResponse: zod.ZodObject<{
     gender: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     ageRange: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
     notes: zod.ZodOptional<zod.ZodNullable<zod.ZodString>>;
+    status: zod.ZodEnum<["confirmado", "nao_comparecera", "nao_respondeu"]>;
     checkedIn: zod.ZodBoolean;
     checkedInAt: zod.ZodOptional<zod.ZodNullable<zod.ZodDate>>;
     floorItemId: zod.ZodOptional<zod.ZodNullable<zod.ZodNumber>>;
     seatNumber: zod.ZodOptional<zod.ZodNullable<zod.ZodNumber>>;
     createdAt: zod.ZodDate;
 }, "strip", zod.ZodTypeAny, {
+    status: "confirmado" | "nao_comparecera" | "nao_respondeu";
     id: number;
     name: string;
     createdAt: Date;
@@ -510,6 +527,7 @@ export declare const ToggleGuestCheckinResponse: zod.ZodObject<{
     floorItemId?: number | null | undefined;
     seatNumber?: number | null | undefined;
 }, {
+    status: "confirmado" | "nao_comparecera" | "nao_respondeu";
     id: number;
     name: string;
     createdAt: Date;

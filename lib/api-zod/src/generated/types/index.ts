@@ -21,5 +21,8 @@ export * from './floorItemUpdate';
 export * from './floorItemUpdateType';
 export * from './guest';
 export * from './guestInput';
+export * from './guestInputStatus';
+export * from './guestStatus';
 export * from './guestUpdate';
+export * from './guestUpdateStatus';
 export * from './healthStatus';

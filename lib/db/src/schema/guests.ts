@@ -15,6 +15,7 @@ export const guestsTable = pgTable("guests", {
   gender: text("gender"),
   ageRange: text("age_range"),
   notes: text("notes"),
+  status: text("status").notNull().default("nao_respondeu"),
   checkedIn: boolean("checked_in").notNull().default(false),
   checkedInAt: timestamp("checked_in_at"),
   floorItemId: integer("floor_item_id"),

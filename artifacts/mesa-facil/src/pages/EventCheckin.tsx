@@ -7,6 +7,7 @@ import {
   useListFloorItems,
   getGetEventQueryKey,
   getListGuestsQueryKey,
+  getListFloorItemsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,7 @@ import { Card } from "@/components/ui/card";
 
 const SEATING_TYPES = ["round-table", "rectangle-table", "square-table", "couple-table"];
 
-export default function EventCheckin() {
+export default function EventCheckin({ backPath }: { backPath?: string }) {
   const { eventId: eventIdStr } = useParams();
   const eventId = parseInt(eventIdStr || "0", 10);
   const queryClient = useQueryClient();
@@ -32,7 +33,7 @@ export default function EventCheckin() {
   });
 
   const { data: floorItems = [] } = useListFloorItems(eventId, {
-    query: { enabled: !!eventId }
+    query: { enabled: !!eventId, queryKey: getListFloorItemsQueryKey(eventId) },
   });
 
   const toggleCheckin = useToggleGuestCheckin();
@@ -68,7 +69,7 @@ export default function EventCheckin() {
       <header className="bg-card border-b py-6 px-6 sticky top-0 z-10">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link href={`/events/${eventId}`}>
+            <Link href={backPath ?? `/events/${eventId}`}>
               <Button variant="ghost" size="icon"><ArrowLeft className="w-5 h-5" /></Button>
             </Link>
             <div>

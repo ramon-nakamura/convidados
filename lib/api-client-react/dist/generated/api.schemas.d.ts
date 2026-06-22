@@ -70,6 +70,12 @@ export interface EventStats {
     occupiedSeats: number;
     availableSeats: number;
 }
+export type GuestStatus = typeof GuestStatus[keyof typeof GuestStatus];
+export declare const GuestStatus: {
+    readonly confirmado: "confirmado";
+    readonly nao_comparecera: "nao_comparecera";
+    readonly nao_respondeu: "nao_respondeu";
+};
 export interface Guest {
     id: number;
     eventId: number;
@@ -86,6 +92,7 @@ export interface Guest {
     ageRange?: string | null;
     /** @nullable */
     notes?: string | null;
+    status: GuestStatus;
     checkedIn: boolean;
     /** @nullable */
     checkedInAt?: string | null;
@@ -95,6 +102,12 @@ export interface Guest {
     seatNumber?: number | null;
     createdAt: string;
 }
+export type GuestInputStatus = typeof GuestInputStatus[keyof typeof GuestInputStatus];
+export declare const GuestInputStatus: {
+    readonly confirmado: "confirmado";
+    readonly nao_comparecera: "nao_comparecera";
+    readonly nao_respondeu: "nao_respondeu";
+};
 export interface GuestInput {
     /** @minLength 1 */
     name: string;
@@ -104,7 +117,14 @@ export interface GuestInput {
     gender?: string;
     ageRange?: string;
     notes?: string;
+    status?: GuestInputStatus;
 }
+export type GuestUpdateStatus = typeof GuestUpdateStatus[keyof typeof GuestUpdateStatus];
+export declare const GuestUpdateStatus: {
+    readonly confirmado: "confirmado";
+    readonly nao_comparecera: "nao_comparecera";
+    readonly nao_respondeu: "nao_respondeu";
+};
 export interface GuestUpdate {
     /** @minLength 1 */
     name?: string;
@@ -120,6 +140,7 @@ export interface GuestUpdate {
     ageRange?: string | null;
     /** @nullable */
     notes?: string | null;
+    status?: GuestUpdateStatus;
     /** @nullable */
     floorItemId?: number | null;
     /** @nullable */

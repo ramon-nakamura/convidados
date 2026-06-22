@@ -442,7 +442,7 @@ components:
 
     Guest:
       type: object
-      required: [id, eventId, name, checkedIn, createdAt]
+      required: [id, eventId, name, status, checkedIn, createdAt]
       properties:
         id:
           type: integer
@@ -462,6 +462,9 @@ components:
           type: ["string", "null"]
         notes:
           type: ["string", "null"]
+        status:
+          type: string
+          enum: [confirmado, nao_comparecera, nao_respondeu]
         checkedIn:
           type: boolean
         checkedInAt:
@@ -494,6 +497,9 @@ components:
           type: string
         notes:
           type: string
+        status:
+          type: string
+          enum: [confirmado, nao_comparecera, nao_respondeu]
 
     GuestUpdate:
       type: object
@@ -513,6 +519,9 @@ components:
           type: ["string", "null"]
         notes:
           type: ["string", "null"]
+        status:
+          type: string
+          enum: [confirmado, nao_comparecera, nao_respondeu]
         floorItemId:
           type: ["integer", "null"]
         seatNumber:

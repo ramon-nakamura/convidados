@@ -137,6 +137,7 @@ export const ListGuestsResponseItem = zod.object({
   "gender": zod.string().nullish(),
   "ageRange": zod.string().nullish(),
   "notes": zod.string().nullish(),
+  "status": zod.enum(['confirmado', 'nao_comparecera', 'nao_respondeu']),
   "checkedIn": zod.boolean(),
   "checkedInAt": zod.coerce.date().nullish(),
   "floorItemId": zod.number().nullish(),
@@ -163,7 +164,8 @@ export const CreateGuestBody = zod.object({
   "vocativo": zod.string().optional(),
   "gender": zod.string().optional(),
   "ageRange": zod.string().optional(),
-  "notes": zod.string().optional()
+  "notes": zod.string().optional(),
+  "status": zod.enum(['confirmado', 'nao_comparecera', 'nao_respondeu']).optional()
 })
 
 
@@ -186,6 +188,7 @@ export const UpdateGuestBody = zod.object({
   "gender": zod.string().nullish(),
   "ageRange": zod.string().nullish(),
   "notes": zod.string().nullish(),
+  "status": zod.enum(['confirmado', 'nao_comparecera', 'nao_respondeu']).optional(),
   "floorItemId": zod.number().nullish(),
   "seatNumber": zod.number().nullish()
 })
@@ -200,6 +203,7 @@ export const UpdateGuestResponse = zod.object({
   "gender": zod.string().nullish(),
   "ageRange": zod.string().nullish(),
   "notes": zod.string().nullish(),
+  "status": zod.enum(['confirmado', 'nao_comparecera', 'nao_respondeu']),
   "checkedIn": zod.boolean(),
   "checkedInAt": zod.coerce.date().nullish(),
   "floorItemId": zod.number().nullish(),
@@ -235,6 +239,7 @@ export const ToggleGuestCheckinResponse = zod.object({
   "gender": zod.string().nullish(),
   "ageRange": zod.string().nullish(),
   "notes": zod.string().nullish(),
+  "status": zod.enum(['confirmado', 'nao_comparecera', 'nao_respondeu']),
   "checkedIn": zod.boolean(),
   "checkedInAt": zod.coerce.date().nullish(),
   "floorItemId": zod.number().nullish(),

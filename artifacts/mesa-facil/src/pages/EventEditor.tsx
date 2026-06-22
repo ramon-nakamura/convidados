@@ -14,13 +14,11 @@ import {
   getGetEventStatsQueryKey,
   getListFloorItemsQueryKey,
   getListGuestsQueryKey,
-} from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
   FloorItemInputType,
   FloorItemInput,
-  type ListFloorItemsResponseItem,
-} from "@workspace/api-client-react/src/generated/api.schemas";
+  type FloorItem as ListFloorItemsResponseItem,
+} from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, GripHorizontal, Users, Map as MapIcon, X, ZoomIn, ZoomOut, Maximize2, RotateCw, RotateCcw, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Loader2, Crosshair } from "lucide-react";
@@ -59,58 +57,77 @@ const ITEM_TYPES = [
 const WALL_ITEM_TYPES = new Set(["bathroom", "entrance", "emergency-exit"]);
 const WALL_SNAP_THRESHOLD = 80; // px — magnetic pull zone near each wall
 
-function snapToWall(
+// ── Room-aware wall snap helpers ─────────────────────────────────────────────
+// These replace the old canvas-bounding-box approach and snap items to the
+// wall of whichever individual room is nearest to the item.
+
+function findNearestRoom(cx: number, cy: number, rooms: Room[]): Room {
+  // Prefer a room that actually contains the point
+  const inside = rooms.find(
+    r => cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h
+  );
+  if (inside) return inside;
+  // Otherwise, use distance from point to the closest room edge
+  let best = rooms[0];
+  let bestDist = Infinity;
+  for (const r of rooms) {
+    const clampedX = Math.max(r.x, Math.min(cx, r.x + r.w));
+    const clampedY = Math.max(r.y, Math.min(cy, r.y + r.h));
+    const d = Math.hypot(cx - clampedX, cy - clampedY);
+    if (d < bestDist) { bestDist = d; best = r; }
+  }
+  return best;
+}
+
+function snapToRoomWall(
   x: number, y: number, w: number, h: number,
-  canvasW: number, canvasH: number,
-  threshold = 0  // 0 = always snap to nearest wall; >0 = only snap within threshold
+  rooms: Room[],
+  threshold = 0
 ): { x: number; y: number } {
-  // Measure distance from item CENTER to each wall
-  const itemCX = x + w / 2;
-  const itemCY = y + h / 2;
-  const dL = itemCX;
-  const dR = canvasW - itemCX;
-  const dT = itemCY;
-  const dB = canvasH - itemCY;
+  const room = findNearestRoom(x + w / 2, y + h / 2, rooms);
+  const cx = x + w / 2, cy = y + h / 2;
+  const dL = cx - room.x;
+  const dR = (room.x + room.w) - cx;
+  const dT = cy - room.y;
+  const dB = (room.y + room.h) - cy;
   const nearest = Math.min(dL, dR, dT, dB);
   if (threshold > 0 && nearest >= threshold) return { x, y };
-  // Clamp the along-wall axis so the item stays within canvas edges
-  const clampY = Math.max(0, Math.min(y, canvasH - h));
-  const clampX = Math.max(0, Math.min(x, canvasW - w));
-  // Center item ON the wall line (half inside, half outside)
-  if (nearest === dL) return { x: -w / 2,         y: clampY };
-  if (nearest === dR) return { x: canvasW - w / 2, y: clampY };
-  if (nearest === dT) return { x: clampX,          y: -h / 2 };
-  return                     { x: clampX,          y: canvasH - h / 2 };
+  const clampY = Math.max(room.y, Math.min(y, room.y + room.h - h));
+  const clampX = Math.max(room.x, Math.min(x, room.x + room.w - w));
+  if (nearest === dL) return { x: room.x - w / 2,          y: clampY };
+  if (nearest === dR) return { x: room.x + room.w - w / 2, y: clampY };
+  if (nearest === dT) return { x: clampX,                  y: room.y - h / 2 };
+  return                     { x: clampX,                  y: room.y + room.h - h / 2 };
 }
 
-function getWallSide(
+function getRoomWallSide(
   x: number, y: number, w: number, h: number,
-  canvasW: number, canvasH: number
-): "left" | "right" | "top" | "bottom" {
-  const cx = x + w / 2;
-  const cy = y + h / 2;
-  const dL = Math.abs(cx);
-  const dR = Math.abs(canvasW - cx);
-  const dT = Math.abs(cy);
-  const dB = Math.abs(canvasH - cy);
+  rooms: Room[]
+): { side: "left" | "right" | "top" | "bottom"; room: Room } {
+  const room = findNearestRoom(x + w / 2, y + h / 2, rooms);
+  const cx = x + w / 2, cy = y + h / 2;
+  const dL = Math.abs(cx - room.x);
+  const dR = Math.abs((room.x + room.w) - cx);
+  const dT = Math.abs(cy - room.y);
+  const dB = Math.abs((room.y + room.h) - cy);
   const nearest = Math.min(dL, dR, dT, dB);
-  if (nearest === dL) return "left";
-  if (nearest === dR) return "right";
-  if (nearest === dT) return "top";
-  return "bottom";
+  if (nearest === dL) return { side: "left",   room };
+  if (nearest === dR) return { side: "right",  room };
+  if (nearest === dT) return { side: "top",    room };
+  return                     { side: "bottom", room };
 }
 
-function snapToWallSide(
+function snapToRoomWallSide(
   side: "left" | "right" | "top" | "bottom",
   x: number, y: number, w: number, h: number,
-  canvasW: number, canvasH: number
+  room: Room
 ): { x: number; y: number } {
-  const clampY = Math.max(0, Math.min(y, canvasH - h));
-  const clampX = Math.max(0, Math.min(x, canvasW - w));
-  if (side === "left")  return { x: -w / 2,         y: clampY };
-  if (side === "right") return { x: canvasW - w / 2, y: clampY };
-  if (side === "top")   return { x: clampX,          y: -h / 2 };
-  return                       { x: clampX,          y: canvasH - h / 2 };
+  const clampY = Math.max(room.y, Math.min(y, room.y + room.h - h));
+  const clampX = Math.max(room.x, Math.min(x, room.x + room.w - w));
+  if (side === "left")   return { x: room.x - w / 2,          y: clampY };
+  if (side === "right")  return { x: room.x + room.w - w / 2, y: clampY };
+  if (side === "top")    return { x: clampX,                  y: room.y - h / 2 };
+  return                        { x: clampX,                  y: room.y + room.h - h / 2 };
 }
 
 const ROTATION_PRESETS = [0, 45, 90, 135, 180, 225, 270, 315];
@@ -346,6 +363,7 @@ type ResizeState = {
   id: number;
   edge: "left" | "right" | "top" | "bottom";
   wallSide: "left" | "right" | "top" | "bottom";
+  room: Room;
   startPointerX: number;
   startPointerY: number;
   origW: number;
@@ -435,8 +453,91 @@ function roomsOverlap(a: Room, b: Room): boolean {
 }
 
 // ── MergedRoomsLayer: SVG that renders the visual union of all rooms ──────────
-// Borders are clipped where rooms overlap each other (evenodd clipPath trick).
+// Computes the exterior boundary of the union: for each edge of each room,
+// subtracts the portions that are shared with (adjacent to or inside) other
+// rooms, then draws only the remaining exterior segments. This guarantees that
+// internal lines at junctions disappear completely — no clipping artifacts.
+
+/** Subtract a list of intervals from a base interval [lo, hi].
+ *  Returns the remaining sub-intervals after removing all [a,b] in subs. */
+function subtractIntervals(
+  lo: number, hi: number,
+  subs: Array<[number, number]>,
+): Array<[number, number]> {
+  let result: Array<[number, number]> = [[lo, hi]];
+  for (const [a, b] of subs) {
+    const next: Array<[number, number]> = [];
+    for (const [r0, r1] of result) {
+      if (b <= r0 || a >= r1) {
+        next.push([r0, r1]);
+      } else {
+        if (r0 < a) next.push([r0, a]);
+        if (b < r1) next.push([b, r1]);
+      }
+    }
+    result = next;
+  }
+  return result;
+}
+
 function MergedRoomsLayer({ rooms }: { rooms: Room[] }) {
+  const snap = (v: number) => Math.round(v);
+
+  const linePaths: string[] = [];
+
+  for (const room of rooms) {
+    const { x: rx, y: ry, w: rw, h: rh } = room;
+    const others = rooms.filter(r => r !== room);
+
+    // Top edge (y = ry): exterior where no other room covers the area just above.
+    // Room B covers just above this edge if B.y < ry AND ry <= B.y + B.h.
+    {
+      const subs = others
+        .filter(b => b.y < ry && ry <= b.y + b.h)
+        .map(b => [Math.max(b.x, rx), Math.min(b.x + b.w, rx + rw)] as [number, number])
+        .filter(([a, b]) => a < b);
+      for (const [x1, x2] of subtractIntervals(rx, rx + rw, subs)) {
+        linePaths.push(`M${snap(x1)},${snap(ry)} H${snap(x2)}`);
+      }
+    }
+
+    // Bottom edge (y = ry + rh): exterior where no other room covers just below.
+    // Room B covers just below if B.y <= ry+rh AND ry+rh < B.y + B.h.
+    {
+      const subs = others
+        .filter(b => b.y <= ry + rh && ry + rh < b.y + b.h)
+        .map(b => [Math.max(b.x, rx), Math.min(b.x + b.w, rx + rw)] as [number, number])
+        .filter(([a, b]) => a < b);
+      for (const [x1, x2] of subtractIntervals(rx, rx + rw, subs)) {
+        linePaths.push(`M${snap(x1)},${snap(ry + rh)} H${snap(x2)}`);
+      }
+    }
+
+    // Left edge (x = rx): exterior where no other room covers just to the left.
+    // Room B covers just left if B.x < rx AND rx <= B.x + B.w.
+    {
+      const subs = others
+        .filter(b => b.x < rx && rx <= b.x + b.w)
+        .map(b => [Math.max(b.y, ry), Math.min(b.y + b.h, ry + rh)] as [number, number])
+        .filter(([a, b]) => a < b);
+      for (const [y1, y2] of subtractIntervals(ry, ry + rh, subs)) {
+        linePaths.push(`M${snap(rx)},${snap(y1)} V${snap(y2)}`);
+      }
+    }
+
+    // Right edge (x = rx + rw): exterior where no other room covers just to the right.
+    // Room B covers just right if B.x <= rx+rw AND rx+rw < B.x + B.w.
+    {
+      const subs = others
+        .filter(b => b.x <= rx + rw && rx + rw < b.x + b.w)
+        .map(b => [Math.max(b.y, ry), Math.min(b.y + b.h, ry + rh)] as [number, number])
+        .filter(([a, b]) => a < b);
+      for (const [y1, y2] of subtractIntervals(ry, ry + rh, subs)) {
+        linePaths.push(`M${snap(rx + rw)},${snap(y1)} V${snap(y2)}`);
+      }
+    }
+  }
+
   return (
     <svg
       style={{
@@ -445,43 +546,30 @@ function MergedRoomsLayer({ rooms }: { rooms: Room[] }) {
         overflow: "visible", pointerEvents: "none", zIndex: 1,
       }}
     >
-      <defs>
-        {rooms.map((_room, i) => {
-          const others = rooms.filter((_, j) => j !== i);
-          const big = `M-9999,-9999 L${VIRTUAL_W + 9999},-9999 L${VIRTUAL_W + 9999},${VIRTUAL_H + 9999} L-9999,${VIRTUAL_H + 9999} Z`;
-          const cuts = others.map(r => `M${r.x - 1},${r.y - 1} L${r.x + r.w + 1},${r.y - 1} L${r.x + r.w + 1},${r.y + r.h + 1} L${r.x - 1},${r.y + r.h + 1} Z`).join(" ");
-          return (
-            <clipPath key={_room.id} id={`mrg-clip-${_room.id}`} clipPathUnits="userSpaceOnUse">
-              <path fillRule="evenodd" d={`${big} ${cuts}`} />
-            </clipPath>
-          );
-        })}
-      </defs>
-      {/* White fills — overlap naturally creates a solid white area */}
+      {/* White fills — overlapping rooms merge into a solid white area */}
       {rooms.map(room => (
         <rect key={`mf-${room.id}`} x={room.x} y={room.y} width={room.w} height={room.h} fill="white" />
       ))}
-      {/* Borders clipped to hide lines inside other rooms */}
-      {rooms.map(room => (
-        <rect
-          key={`mb-${room.id}`}
-          x={room.x} y={room.y} width={room.w} height={room.h}
+      {/* Only exterior border segments — internal junction lines are omitted */}
+      {linePaths.length > 0 && (
+        <path
+          d={linePaths.join(" ")}
           fill="none"
           stroke="rgba(0,0,0,0.12)"
           strokeWidth={1}
-          clipPath={`url(#mrg-clip-${room.id})`}
+          shapeRendering="crispEdges"
         />
-      ))}
+      )}
     </svg>
   );
 }
 
-export default function EventEditor() {
+export default function EventEditor({ clientMode = false }: { clientMode?: boolean }) {
   const { eventId: eventIdStr } = useParams();
   const eventId = parseInt(eventIdStr || "0", 10);
   const queryClient = useQueryClient();
 
-  const [mode, setMode] = useState<"layout" | "assignment">("layout");
+  const [mode, setMode] = useState<"layout" | "assignment">(clientMode ? "assignment" : "layout");
   const [rooms, setRooms] = useState<Room[]>(() => {
     try {
       const stored = localStorage.getItem(`canvas-rooms-${eventId}`);
@@ -684,10 +772,9 @@ export default function EventEditor() {
     for (const item of wallItems) {
       const pos  = localPosRef.current[item.id]  ?? { x: item.x,    y: item.y     };
       const size = localSizeRef.current[item.id] ?? { w: item.width, h: item.height };
-      // Determine which wall the item was on using OLD dimensions
-      const wallSide = getWallSide(pos.x, pos.y, size.w, size.h, prevW, prevH);
-      // Re-snap to the same wall with the NEW dimensions
-      const newPos = snapToWallSide(wallSide, pos.x, pos.y, size.w, size.h, canvasWidth, canvasHeight);
+      // Determine which room wall the item was on, then re-snap to it
+      const { side: wallSide, room: wallRoom } = getRoomWallSide(pos.x, pos.y, size.w, size.h, roomsRef.current);
+      const newPos = snapToRoomWallSide(wallSide, pos.x, pos.y, size.w, size.h, wallRoom);
       posPatches[item.id] = newPos;
       updates.push({ id: item.id, x: newPos.x, y: newPos.y });
     }
@@ -870,7 +957,7 @@ export default function EventEditor() {
         ? (localSize[item.id] ?? { w: item.width, h: item.height })
         : computeTableSize(item.type, item.capacity);
       if (WALL_ITEM_TYPES.has(item.type)) {
-        const snapped = snapToWall(snapToGrid(rawX), snapToGrid(rawY), dW, dH, canvasWidth, canvasHeight, WALL_SNAP_THRESHOLD);
+        const snapped = snapToRoomWall(snapToGrid(rawX), snapToGrid(rawY), dW, dH, roomsRef.current, WALL_SNAP_THRESHOLD);
         setLocalPos((prev) => ({ ...prev, [item.id]: snapped }));
       } else {
         const newX = Math.max(0, Math.min(snapToGrid(rawX), VIRTUAL_W - dW));
@@ -891,7 +978,7 @@ export default function EventEditor() {
         ? (localSize[item.id] ?? { w: item.width, h: item.height })
         : computeTableSize(item.type, item.capacity);
       if (WALL_ITEM_TYPES.has(item.type)) {
-        pos = snapToWall(pos.x, pos.y, dW, dH, canvasWidth, canvasHeight);
+        pos = snapToRoomWall(pos.x, pos.y, dW, dH, roomsRef.current);
       } else {
         // Revert to origin if item center landed outside every room
         if (!isPointInAnyRoom(pos.x + dW / 2, pos.y + dH / 2, roomsRef.current)) {
@@ -921,9 +1008,9 @@ export default function EventEditor() {
       e.currentTarget.setPointerCapture(e.pointerId);
       const pos  = localPos[item.id]  ?? { x: item.x,    y: item.y     };
       const size = localSize[item.id] ?? { w: item.width, h: item.height };
-      const wallSide = getWallSide(pos.x, pos.y, size.w, size.h, canvasWidth, canvasHeight);
+      const { side: wallSide, room: wallRoom } = getRoomWallSide(pos.x, pos.y, size.w, size.h, roomsRef.current);
       resizeRef.current = {
-        id: item.id, edge, wallSide,
+        id: item.id, edge, wallSide, room: wallRoom,
         startPointerX: e.clientX,
         startPointerY: e.clientY,
         origW: size.w, origH: size.h,
@@ -948,10 +1035,10 @@ export default function EventEditor() {
       if (edge === "bottom") newH = Math.max(MIN_SIZE, snapToGrid(origH + dy));
       if (edge === "top")    newH = Math.max(MIN_SIZE, snapToGrid(origH - dy));
       setLocalSize((prev) => ({ ...prev, [item.id]: { w: newW, h: newH } }));
-      const newPos = snapToWallSide(wallSide, origX, origY, newW, newH, canvasWidth, canvasHeight);
+      const newPos = snapToRoomWallSide(wallSide, origX, origY, newW, newH, resizeRef.current!.room);
       setLocalPos((prev) => ({ ...prev, [item.id]: newPos }));
     },
-    [canvasWidth, canvasHeight]
+    []
   );
 
   const handleResizePointerUp = useCallback(
@@ -1039,7 +1126,7 @@ export default function EventEditor() {
     let x = Math.max(0, Math.min(snapToGrid(rawX), VIRTUAL_W - cW));
     let y = Math.max(0, Math.min(snapToGrid(rawY), VIRTUAL_H - cH));
     if (WALL_ITEM_TYPES.has(data.type)) {
-      ({ x, y } = snapToWall(x, y, cW, cH, canvasWidth, canvasHeight));
+      ({ x, y } = snapToRoomWall(x, y, cW, cH, roomsRef.current));
     } else if (!isPointInAnyRoom(x + cW / 2, y + cH / 2, roomsRef.current)) {
       return; // Reject drop outside any room
     }
@@ -1172,51 +1259,60 @@ export default function EventEditor() {
       {/* Header */}
       <header className="bg-card border-b py-3 px-6 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <Link href="/">
+          <Link href={clientMode ? "/client" : "/app"}>
             <Button variant="ghost" size="icon" data-testid="button-back">
               <ArrowLeft className="w-4 h-4" />
             </Button>
           </Link>
           <div>
             <h1 className="text-lg font-bold text-primary leading-tight">{event.name}</h1>
-            <p className="text-xs text-muted-foreground">Editor de Mapa</p>
+            <p className="text-xs text-muted-foreground">{clientMode ? "Área do Cliente" : "Editor de Mapa"}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Mode toggle */}
-          <div className="flex rounded-lg border bg-muted p-0.5 gap-0.5" role="tablist">
-            <button
-              role="tab"
-              aria-selected={mode === "layout"}
-              onClick={() => setMode("layout")}
-              data-testid="tab-layout"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                mode === "layout"
-                  ? "bg-background shadow-sm text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <MapIcon className="w-3.5 h-3.5" />
-              Layout
-            </button>
-            <button
-              role="tab"
-              aria-selected={mode === "assignment"}
-              onClick={() => setMode("assignment")}
-              data-testid="tab-assignment"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                mode === "assignment"
-                  ? "bg-background shadow-sm text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" />
-              Atribuição
-            </button>
-          </div>
+          {/* Mode toggle — hidden in client mode */}
+          {!clientMode && (
+            <div className="flex rounded-lg border bg-muted p-0.5 gap-0.5" role="tablist">
+              <button
+                role="tab"
+                aria-selected={mode === "layout"}
+                onClick={() => setMode("layout")}
+                data-testid="tab-layout"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  mode === "layout"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <MapIcon className="w-3.5 h-3.5" />
+                Layout
+              </button>
+              <button
+                role="tab"
+                aria-selected={mode === "assignment"}
+                onClick={() => setMode("assignment")}
+                data-testid="tab-assignment"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  mode === "assignment"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                Atribuição
+              </button>
+            </div>
+          )}
 
-          <Link href={`/events/${eventId}/checkin`}>
+          <Link href={clientMode ? `/client/events/${eventId}/guests` : `/events/${eventId}/guests`}>
+            <Button variant="outline" size="sm" data-testid="button-guests-page">
+              <Users className="w-3.5 h-3.5 mr-1.5" />
+              Convidados
+            </Button>
+          </Link>
+
+          <Link href={clientMode ? `/client/events/${eventId}/checkin` : `/events/${eventId}/checkin`}>
             <Button variant="outline" size="sm" data-testid="button-checkin-mode">
               Modo Check-in
             </Button>
@@ -1535,7 +1631,13 @@ export default function EventEditor() {
         <div className="flex-1 relative overflow-hidden">
           <div
             ref={viewportRef}
-            className="absolute inset-0 bg-muted/40 overflow-hidden"
+            className="absolute inset-0 overflow-hidden"
+            style={{
+              backgroundColor: "hsl(84,8%,92%)",
+              backgroundImage: `radial-gradient(circle, hsl(84,8%,55%) 0.7px, transparent 0.7px)`,
+              backgroundSize: `${GRID_SIZE * zoom}px ${GRID_SIZE * zoom}px`,
+              backgroundPosition: `${((pan.x % (GRID_SIZE * zoom)) + GRID_SIZE * zoom) % (GRID_SIZE * zoom)}px ${((pan.y % (GRID_SIZE * zoom)) + GRID_SIZE * zoom) % (GRID_SIZE * zoom)}px`,
+            }}
           >
           <div
             ref={containerRef}
@@ -1546,9 +1648,6 @@ export default function EventEditor() {
               height: VIRTUAL_H,
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
               transformOrigin: "0 0",
-              backgroundImage: `radial-gradient(circle, hsl(84,8%,60%) 0.7px, transparent 0.7px)`,
-              backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
-              backgroundPosition: "0 0",
               cursor: drawMode ? 'crosshair' : isPanningRef.current ? "grabbing" : "grab",
             }}
             onPointerDown={handleCanvasPointerDown}
@@ -1655,7 +1754,7 @@ export default function EventEditor() {
                 >
                   {/* Wall item resize handles */}
                   {isWallItem && mode === "layout" && (() => {
-                    const wallSide = getWallSide(pos.x, pos.y, displayW, displayH, canvasWidth, canvasHeight);
+                    const { side: wallSide } = getRoomWallSide(pos.x, pos.y, displayW, displayH, roomsRef.current);
                     return (["top", "bottom", "left", "right"] as const).map((edge) => {
                       if (edge === wallSide) return null;
                       const isHorz = edge === "top" || edge === "bottom";
@@ -1960,9 +2059,13 @@ export default function EventEditor() {
             </div>
           </div>
 
-          <div className="p-4 flex flex-col gap-2">
-            <GuestManagementDialog eventId={eventId} />
-            <GuestImportDialog eventId={eventId} />
+          <div className="p-4">
+            <Link href={clientMode ? `/client/events/${eventId}/guests` : `/events/${eventId}/guests`}>
+              <Button variant="outline" className="w-full" size="sm">
+                <Users className="w-4 h-4 mr-2" />
+                Convidados
+              </Button>
+            </Link>
           </div>
         </aside>
       </div>
